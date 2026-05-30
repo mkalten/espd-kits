@@ -1,0 +1,11 @@
+{
+  "boards": [
+    {
+      "id": "waveshare_s3",
+      "name": "Waveshare ESP32-S3-AUDIO",
+      "target": "esp32s3",
+      "chip": "ESP32-S3",
+      "description": "Waveshare AI Smart Speaker / ESP32-S3-AUDIO Board"
+    }
+  ]
+}
