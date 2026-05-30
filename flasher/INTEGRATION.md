@@ -55,6 +55,22 @@ python3 scripts/generate-manifest.py --version v0.1.0 \
   -o /tmp/manifest.json
 ```
 
+## Patch sync (browser)
+
+`sync.js` implements the same CDC protocol as [`espd/scripts/espd_sync.py`](../espd/scripts/espd_sync.py):
+
+- `STATUS`, `PUT`, `RELOAD`, `RESET`, `MODE MSC_SYNC` / `MODE NORMAL`
+- Prepares SD (`/sdcard`) or internal flash (`/storage` via **msc_sync** reboot)
+- After reboot, reconnects via `navigator.serial.getPorts()` (port must stay authorized)
+
+**Browser limits:**
+
+- Folder pick: `showDirectoryPicker()` (Chrome / Edge)
+- Auto-watch: `FileSystemObserver` when available; otherwise **Sync now**
+- If reconnect after reboot fails, user must pick the USB port again
+
+See [espd/docs/DEV_SYNC.md](../espd/docs/DEV_SYNC.md) for protocol and storage rules.
+
 ## Adding a board
 
 1. Add `boards/<id>.yaml` and `config/boards/<id>.select`

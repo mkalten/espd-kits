@@ -160,6 +160,24 @@
         <button type="button" id="mon-scroll-end" class="absolute bottom-3 right-3 hidden border border-neutral-300 bg-white px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-700 shadow-sm transition hover:border-black hover:text-black" aria-label="Jump to latest log lines">Latest ↓</button>
       </div>
     </section>
+
+    <section class="mt-16 border-t border-neutral-200 pt-8">
+      <h3 class="mb-1 text-xs font-bold uppercase tracking-[0.12em] text-neutral-400">Patch sync</h3>
+      <p class="mb-5 text-sm text-neutral-500">Sync a local Pure Data project to the board over USB CDC — same protocol as <code class="text-neutral-600">espd_sync.py</code>. Requires firmware with patch sync enabled. After an internal-flash sync the device reboots into <code class="text-neutral-600">msc_sync</code>; the flasher reconnects automatically if the port stays authorized.</p>
+      <div class="mb-3 flex flex-wrap items-center gap-3">
+        <button type="button" class="sec-btn inline-flex items-center gap-2 border border-neutral-300 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-neutral-700 transition hover:border-black hover:text-black" id="sync-folder-btn">Choose folder</button>
+        <span id="sync-folder-name" class="hidden text-xs text-neutral-500"></span>
+        <label class="hidden items-center gap-2 text-xs text-neutral-600" id="sync-assets-row">
+          <input type="checkbox" id="sync-assets" checked class="h-3.5 w-3.5 border-neutral-400" />
+          Include samples
+        </label>
+        <button type="button" class="sec-btn hidden inline-flex items-center gap-2 border border-neutral-300 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-neutral-700 transition hover:border-black hover:text-black" id="sync-start-btn">Connect &amp; sync</button>
+        <button type="button" class="sec-btn hidden inline-flex items-center gap-2 border border-neutral-300 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-neutral-700 transition hover:border-black hover:text-black" id="sync-now-btn">Sync now</button>
+        <button type="button" class="sec-btn hidden inline-flex items-center gap-2 border border-neutral-300 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-neutral-700 transition hover:border-black hover:text-black" id="sync-stop-btn">Stop sync</button>
+      </div>
+      <p id="sync-status" class="text-xs text-neutral-400"></p>
+      <p id="sync-watch-hint" class="mt-2 hidden text-xs text-neutral-400">File watch unavailable in this browser — use Sync now after saves.</p>
+    </section>
   </main>
 
   <footer class="mt-auto border-t border-neutral-200 bg-neutral-50 px-6 py-8">

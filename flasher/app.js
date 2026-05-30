@@ -1,4 +1,13 @@
 import { ESPLoader, Transport } from 'https://cdn.jsdelivr.net/npm/esptool-js@0.5.4/bundle.js'
+import {
+  collectSyncFiles,
+  connectAndPrepare,
+  requestSerialPort,
+  sleep,
+  syncFileList,
+  syncStorePath,
+  waitForAuthorizedPort,
+} from './sync.js'
 
 const REPO = 'ben-wes/espd-kits'
 
@@ -18,6 +27,135 @@ let monReader = null
 let monBuf = ''
 let monFollowLog = true
 let monExpanded = false
+
+let syncDirHandle = null
+let syncClient = null
+let syncBusy = false
+let syncObserver = null
+let syncDebounceTimer = null
+
+function syncLog(msg) {
+  appendLine(`[sync] ${msg}`)
+}
+
+function syncCallbacks() {
+  return {
+    onLog: syncLog,
+    onLine(line, kind) {
+      if (kind === 'device') appendLine(line)
+      else syncLog(line)
+    },
+  }
+}
+
+async function reconnectSync() {
+  const cb = syncCallbacks()
+  try {
+    return await waitForAuthorizedPort(60000, cb)
+  } catch (_) {
+    syncLog('Pick the USB port again (reboot / re-enumeration)')
+    return connectAndPrepare(requestSerialPort, cb)
+  }
+}
+
+function setSyncUi(connected) {
+  show($('sync-start-btn'), syncDirHandle && !connected)
+  show($('sync-now-btn'), connected)
+  show($('sync-stop-btn'), connected)
+  show($('sync-assets-row'), !!syncDirHandle)
+  show($('mon-connect-btn'), !connected && !monPort)
+  $('sync-start-btn').disabled = syncBusy
+  $('sync-now-btn').disabled = syncBusy
+}
+
+async function stopSync() {
+  if (syncObserver) {
+    try { syncObserver.disconnect() } catch (_) {}
+    syncObserver = null
+  }
+  if (syncDebounceTimer) {
+    clearTimeout(syncDebounceTimer)
+    syncDebounceTimer = null
+  }
+  if (syncClient) {
+    await syncClient.close().catch(() => {})
+    syncClient = null
+  }
+  setSyncUi(false)
+  $('sync-status').textContent = syncDirHandle ? 'Stopped' : ''
+  setMonitorExpanded(false)
+  showMonitorDisconnected()
+}
+
+async function runSync(label) {
+  if (!syncDirHandle || !syncClient || syncBusy) return
+  syncBusy = true
+  setSyncUi(true)
+  try {
+    const includeAssets = $('sync-assets').checked
+    const rels = await collectSyncFiles(syncDirHandle, includeAssets)
+    if (!rels.length) {
+      syncLog(`${label}: nothing to send`)
+      return
+    }
+    syncLog(`${label} (${rels.length} files)`)
+    syncClient = await syncFileList(
+      syncClient,
+      syncDirHandle,
+      rels,
+      syncLog,
+      reconnectSync,
+    )
+    const info = await syncClient.status()
+    $('sync-status').textContent = `Synced to ${syncStorePath(info)} · mode=${info.mode}`
+  } catch (e) {
+    syncLog(`error: ${e.message || e}`)
+  } finally {
+    syncBusy = false
+    setSyncUi(!!syncClient)
+  }
+}
+
+async function startSyncWatch() {
+  if (!('FileSystemObserver' in window) || !syncDirHandle) {
+    show($('sync-watch-hint'), !!syncDirHandle)
+    return
+  }
+  show($('sync-watch-hint'), false)
+  syncObserver = new FileSystemObserver(records => {
+    if (syncBusy || !syncClient) return
+    const relevant = records.some(r => r.type === 'modified' || r.type === 'appeared')
+    if (!relevant) return
+    if (syncDebounceTimer) clearTimeout(syncDebounceTimer)
+    syncDebounceTimer = setTimeout(() => runSync('watch'), 350)
+  })
+  await syncObserver.observe(syncDirHandle, { recursive: true })
+}
+
+async function startPatchSync() {
+  if (!syncDirHandle || syncBusy) return
+  if (syncClient || monPort) await stopSync()
+  if (monPort) await closeMonitor()
+  syncBusy = true
+  setSyncUi(true)
+  showSyncLogPanel()
+  monFollowLog = true
+  try {
+    syncLog('connecting…')
+    syncClient = await connectAndPrepare(requestSerialPort, syncCallbacks())
+    const info = await syncClient.status()
+    $('sync-status').textContent = `Connected · target ${syncStorePath(info)} · mode=${info.mode}`
+    syncBusy = false
+    await runSync('initial sync')
+    await startSyncWatch()
+  } catch (e) {
+    syncLog(`connect failed: ${e.message || e}`)
+    await stopSync()
+  } finally {
+    syncBusy = false
+    setSyncUi(!!syncClient)
+  }
+}
 
 function setMonitorExpanded(on) {
   monExpanded = on
@@ -406,7 +544,17 @@ $('flash-btn').addEventListener('click', async () => {
   }
 })
 
+function showSyncLogPanel() {
+  show($('monitor-wrap'), true)
+  show($('mon-clear-btn'), true)
+  show($('mon-expand-btn'), true)
+  show($('monitor-cursor'), true)
+  show($('mon-connect-btn'), false)
+  show($('mon-disc-btn'), false)
+}
+
 function showMonitorConnected() {
+  if (syncClient) return
   show($('mon-connect-btn'), false)
   show($('mon-disc-btn'), true)
   show($('mon-status'), true)
@@ -444,6 +592,10 @@ function scrollMonitorToEnd() {
 }
 
 async function closeMonitor() {
+  if (syncClient) {
+    await stopSync()
+    return
+  }
   const port = monPort
   const reader = monReader
   monPort = null
@@ -470,7 +622,7 @@ function appendLine(text) {
 }
 
 $('mon-connect-btn').addEventListener('click', async () => {
-  if (monPort) return
+  if (monPort || syncClient) return
   try {
     const port = await navigator.serial.requestPort()
     await port.open({ baudRate: 115200 })
@@ -531,6 +683,29 @@ $('mon-fs-disc').addEventListener('click', () => $('mon-disc-btn').click())
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && monExpanded) setMonitorExpanded(false)
 })
+
+$('sync-folder-btn').addEventListener('click', async () => {
+  if (!window.showDirectoryPicker) {
+    syncLog('Folder picker not supported in this browser')
+    show($('monitor-wrap'), true)
+    show($('mon-clear-btn'), true)
+    return
+  }
+  try {
+    syncDirHandle = await window.showDirectoryPicker({ mode: 'read' })
+    $('sync-folder-name').textContent = syncDirHandle.name
+    show($('sync-folder-name'), true)
+    setSyncUi(!!syncClient)
+    try {
+      const hasMain = await syncDirHandle.getFileHandle('main.pd').then(() => true).catch(() => false)
+      if (!hasMain) syncLog(`warning: no main.pd in ${syncDirHandle.name}`)
+    } catch (_) {}
+  } catch (_) {}
+})
+
+$('sync-start-btn').addEventListener('click', () => startPatchSync())
+$('sync-now-btn').addEventListener('click', () => runSync('sync'))
+$('sync-stop-btn').addEventListener('click', () => stopSync())
 
 if (!('serial' in navigator)) show($('serial-warning'), true)
 if (location.protocol === 'file:') setTab(true)
