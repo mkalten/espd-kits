@@ -14,9 +14,7 @@ Based on the [ESPD Web Flasher](https://flasher.michaelkramer.at/) reference UI 
 
 ```bash
 python3 scripts/generate-manifest.py --catalog
-python3 scripts/generate-manifest.py --version dev
-mkdir -p flasher/manifests
-cp manifests/boards.json manifests/releases.json flasher/manifests/
+python3 scripts/sync-flasher-releases.py   # mirror release bins (same-origin fetch)
 python3 -m http.server 8080 --directory flasher
 # open http://localhost:8080/
 ```

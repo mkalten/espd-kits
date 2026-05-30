@@ -1,4 +1,6 @@
 dist/
+flasher/firmware/
+flasher/manifests/releases/
 .DS_Store
 *.pyc
 __pycache__/

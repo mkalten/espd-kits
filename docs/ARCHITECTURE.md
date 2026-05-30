@@ -73,7 +73,7 @@ See `scripts/generate-manifest.py` and [flasher/INTEGRATION.md](../flasher/INTEG
 | Workflow | Trigger | Output |
 |----------|---------|--------|
 | `build.yml` | tags `v*`, manual | matrix from `boards/index.yaml`; release assets on tag |
-| `pages.yml` | push to `main` | deploy `flasher/` |
+| `pages.yml` | push to `main` | deploy `flasher/`; mirror release firmware via `sync-flasher-releases.py` |
 
 ## Follow-ups in `espd`
 

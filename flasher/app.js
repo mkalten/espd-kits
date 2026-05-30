@@ -60,7 +60,7 @@ function renderBoards() {
   if (!boards.length) {
     show(none, true)
     none.textContent = releaseManifests.get(tag) === null
-      ? 'Could not load release manifest.'
+      ? 'Release firmware not mirrored on this site yet — wait for Pages to redeploy after the release.'
       : 'No boards in this release.'
     return
   }
@@ -90,7 +90,7 @@ function renderBoards() {
 async function loadReleaseManifest(tag) {
   if (releaseManifests.has(tag)) return releaseManifests.get(tag)
   try {
-    const res = await fetch(`${releaseDownloadBase(tag)}/manifest.json`)
+    const res = await fetch(`manifests/releases/${encodeURIComponent(tag)}.json`)
     if (!res.ok) throw new Error('HTTP ' + res.status)
     const data = await res.json()
     releaseManifests.set(tag, data)

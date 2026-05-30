@@ -7,7 +7,7 @@ Multi-board ready UI in `index.html` + `app.js`.
 | Piece | Source |
 |-------|--------|
 | Release list | GitHub Releases API |
-| Board picker | `manifest.json` on the selected release (boards + file URLs) |
+| Board picker + firmware files | `manifests/releases/{tag}.json` + `firmware/{tag}/` on Pages (mirrored from GitHub Releases; browser cannot fetch release assets cross-origin) |
 | Firmware binaries | `{board_id}-bootloader.bin`, `{board_id}-espd.bin`, … per release |
 | Deploy | `.github/workflows/pages.yml` → GitHub Pages |
 
