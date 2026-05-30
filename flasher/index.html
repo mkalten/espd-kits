@@ -35,15 +35,17 @@
       min-height: 0;
       height: auto;
     }
-    .log-tag { font-weight: 700; }
-    .log-sync { color: #525252; }
-    .log-ok { color: #16a34a; }
-    .log-err { color: #dc2626; }
-    .log-warn { color: #ca8a04; }
-    .log-info { color: #2563eb; }
-    .log-hex { color: #7c3aed; }
-    .log-num { color: #171717; font-weight: 600; }
-    .log-cmd { color: #b91c1c; font-weight: 600; letter-spacing: 0.02em; }
+    .log-line.log-script { color: #a3a3a3; }
+    .log-line.log-dev-tx { color: #0891b2; }
+    .log-line.log-dev-ok { color: #16a34a; }
+    .log-line.log-dev-err { color: #dc2626; }
+    .log-line.log-espd { color: #0891b2; font-weight: 600; }
+    .log-line.log-pd { color: #404040; }
+    .log-line.log-esp-i,
+    .log-line.log-esp-d,
+    .log-line.log-esp-v { color: #737373; }
+    .log-line.log-esp-w { color: #ca8a04; }
+    .log-line.log-esp-e { color: #dc2626; }
   </style>
 </head>
 <body class="flex min-h-screen flex-col bg-white text-black antialiased">
