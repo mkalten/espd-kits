@@ -29,6 +29,7 @@ let monReader = null
 let monBuf = ''
 let monFollowLog = true
 let monExpanded = false
+let monLogOpen = false
 
 let syncDirHandle = null
 let syncClient = null
@@ -126,9 +127,9 @@ function setSyncUi(connected) {
   show($('sync-now-btn'), connected)
   show($('sync-stop-btn'), connected)
   show($('sync-assets-row'), !!syncDirHandle)
-  show($('mon-connect-btn'), !connected && !monPort)
   $('sync-start-btn').disabled = syncBusy
   $('sync-now-btn').disabled = syncBusy
+  updateMonitorToolbar()
 }
 
 async function stopSync() {
@@ -257,14 +258,14 @@ async function startPatchSync() {
 function setMonitorExpanded(on) {
   monExpanded = on
   $('monitor-wrap').classList.toggle('mon-expanded', on)
-  show($('mon-fs-controls'), on)
+  show($('mon-toolbar-title'), on)
   updateExpandLogButton(on)
   document.body.classList.toggle('overflow-hidden', on)
   if (monFollowLog) scrollMonitorToEnd()
 }
 
-const ICON_EXPAND_LOG = '<svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15"/></svg>'
-const ICON_COLLAPSE_LOG = '<svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25"/></svg>'
+const ICON_EXPAND_LOG = '<svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15"/></svg>'
+const ICON_COLLAPSE_LOG = '<svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25"/></svg>'
 
 function expandLogButtonHtml(expanded) {
   const icon = expanded ? ICON_COLLAPSE_LOG : ICON_EXPAND_LOG
@@ -274,7 +275,6 @@ function expandLogButtonHtml(expanded) {
 
 function updateExpandLogButton(expanded) {
   $('mon-expand-btn').innerHTML = expandLogButtonHtml(expanded)
-  $('mon-fs-collapse').innerHTML = expandLogButtonHtml(true)
 }
 
 function toggleMonitorExpanded() {
@@ -655,36 +655,37 @@ $('flash-btn').addEventListener('click', async () => {
   }
 })
 
+function updateMonitorToolbar() {
+  const syncing = !!syncClient
+  const monitoring = !!monPort && !syncing
+  const logOpen = syncing || monitoring || monLogOpen
+
+  show($('mon-connect-btn'), !syncing && !monitoring)
+  show($('mon-disc-btn'), monitoring)
+  show($('mon-status'), monitoring)
+  show($('mon-log-actions'), logOpen)
+  show($('monitor-wrap'), logOpen)
+  show($('monitor-cursor'), logOpen)
+}
+
 function showSyncLogPanel() {
-  show($('monitor-wrap'), true)
-  show($('mon-log-actions'), true)
-  show($('monitor-cursor'), true)
-  show($('mon-connect-btn'), false)
-  show($('mon-disc-btn'), false)
+  updateMonitorToolbar()
 }
 
 function showMonitorConnected() {
   if (syncClient) return
-  show($('mon-connect-btn'), false)
-  show($('mon-disc-btn'), true)
-  show($('mon-status'), true)
-  show($('mon-log-actions'), true)
-  show($('monitor-wrap'), true)
-  show($('monitor-cursor'), true)
+  monLogOpen = false
   monFollowLog = true
   show($('mon-scroll-end'), false)
+  updateMonitorToolbar()
 }
 
 function showMonitorDisconnected() {
+  monLogOpen = false
   setMonitorExpanded(false)
-  show($('mon-connect-btn'), true)
-  show($('mon-disc-btn'), false)
-  show($('mon-status'), false)
-  show($('mon-log-actions'), false)
-  show($('monitor-wrap'), false)
-  show($('monitor-cursor'), false)
   show($('mon-scroll-end'), false)
   monFollowLog = true
+  updateMonitorToolbar()
 }
 
 function isMonitorAtBottom() {
@@ -792,8 +793,8 @@ $('mon-connect-btn').addEventListener('click', async () => {
     readMonitor(port)
   } catch (err) {
     appendLine('[Error] ' + (err?.message ?? err))
-    show($('monitor-wrap'), true)
-    show($('mon-log-actions'), true)
+    monLogOpen = true
+    updateMonitorToolbar()
   }
 })
 
@@ -837,9 +838,6 @@ $('monitor-term').addEventListener('wheel', e => {
 }, { passive: true })
 $('mon-scroll-end').addEventListener('click', scrollMonitorToEnd)
 $('mon-expand-btn').addEventListener('click', toggleMonitorExpanded)
-$('mon-fs-collapse').addEventListener('click', () => setMonitorExpanded(false))
-$('mon-fs-clear').addEventListener('click', () => $('mon-clear-btn').click())
-$('mon-fs-disc').addEventListener('click', () => $('mon-disc-btn').click())
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && monExpanded) setMonitorExpanded(false)
 })
@@ -847,8 +845,8 @@ document.addEventListener('keydown', e => {
 $('sync-folder-btn').addEventListener('click', async () => {
   if (!window.showDirectoryPicker) {
     syncLog('Folder picker not supported in this browser')
-    show($('monitor-wrap'), true)
-    show($('mon-log-actions'), true)
+    monLogOpen = true
+    updateMonitorToolbar()
     return
   }
   try {

@@ -30,6 +30,11 @@
       padding: 1rem 1.5rem;
       box-sizing: border-box;
     }
+    #monitor-wrap.mon-expanded #mon-toolbar {
+      border-bottom: 1px solid #e5e5e5;
+      padding-bottom: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
     #monitor-wrap.mon-expanded #monitor-term {
       flex: 1;
       min-height: 0;
@@ -147,23 +152,18 @@
       <p class="mb-5 text-sm text-neutral-500">Optional — after flashing, open the port again to read the boot log. Use the board’s RESET button to reboot. Flashing and monitoring use separate connections.</p>
       <div class="mb-3 flex flex-wrap items-center gap-3">
         <button type="button" class="sec-btn inline-flex items-center gap-2 border border-neutral-300 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-neutral-700 transition hover:border-black hover:text-black" id="mon-connect-btn">Open monitor</button>
-        <button type="button" class="sec-btn hidden inline-flex items-center gap-2 border border-neutral-300 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-neutral-700 transition hover:border-black hover:text-black" id="mon-disc-btn">Disconnect</button>
-        <span id="mon-status" class="hidden flex items-center gap-1.5 text-xs text-neutral-400">
-          <span class="h-1.5 w-1.5 rounded-full bg-green-600"></span>
-          115200 baud
-        </span>
-        <span id="mon-log-actions" class="ml-auto hidden flex flex-wrap items-center gap-3">
-          <button type="button" class="sec-btn inline-flex items-center gap-2 border border-neutral-300 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-neutral-700 transition hover:border-black hover:text-black" id="mon-clear-btn">Clear</button>
-          <button type="button" class="sec-btn inline-flex items-center gap-2 border border-neutral-300 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-neutral-700 transition hover:border-black hover:text-black" id="mon-expand-btn">Expand log</button>
-        </span>
       </div>
       <div id="monitor-wrap" class="relative hidden">
-        <div id="mon-fs-controls" class="mb-3 hidden flex flex-wrap items-center gap-3 border-b border-neutral-200 pb-3">
-          <span class="text-xs font-bold uppercase tracking-[0.12em] text-neutral-500">Serial monitor</span>
-          <span class="ml-auto flex flex-wrap items-center gap-3">
-            <button type="button" class="sec-btn inline-flex items-center gap-2 border border-neutral-300 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-neutral-700 transition hover:border-black hover:text-black" id="mon-fs-clear">Clear</button>
-            <button type="button" class="sec-btn inline-flex items-center gap-2 border border-neutral-300 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-neutral-700 transition hover:border-black hover:text-black" id="mon-fs-collapse">Collapse log</button>
-            <button type="button" class="sec-btn inline-flex items-center gap-2 border border-neutral-300 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-neutral-700 transition hover:border-black hover:text-black" id="mon-fs-disc">Disconnect</button>
+        <div id="mon-toolbar" class="mb-3 flex flex-wrap items-center gap-3">
+          <span id="mon-toolbar-title" class="hidden text-xs font-bold uppercase tracking-[0.12em] text-neutral-500">Serial monitor</span>
+          <button type="button" class="sec-btn hidden inline-flex items-center gap-2 border border-neutral-300 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-neutral-700 transition hover:border-black hover:text-black" id="mon-disc-btn">Disconnect</button>
+          <span id="mon-status" class="hidden flex items-center gap-1.5 text-xs text-neutral-400">
+            <span class="h-1.5 w-1.5 rounded-full bg-green-600"></span>
+            115200 baud
+          </span>
+          <span id="mon-log-actions" class="ml-auto hidden flex flex-wrap items-center gap-3">
+            <button type="button" class="sec-btn inline-flex items-center gap-2 border border-neutral-300 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-neutral-700 transition hover:border-black hover:text-black" id="mon-clear-btn">Clear</button>
+            <button type="button" class="sec-btn inline-flex items-center gap-2 border border-neutral-300 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-neutral-700 transition hover:border-black hover:text-black" id="mon-expand-btn">Expand log</button>
           </span>
         </div>
         <div id="monitor-term" class="h-64 overflow-y-auto border border-neutral-200 bg-neutral-50 p-3 font-mono text-xs leading-relaxed text-neutral-800">
