@@ -1,0 +1,4 @@
+[submodule "espd"]
+	path = espd
+	url = https://github.com/ben-wes/espd.git
+	branch = bsp

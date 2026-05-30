@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ESPD Kits Flasher</title>
+  <style>
+    :root { font-family: system-ui, sans-serif; line-height: 1.5; }
+    body { max-width: 42rem; margin: 2rem auto; padding: 0 1rem; }
+    .warn { color: #a40; }
+    code { background: #f4f4f4; padding: 0.1em 0.35em; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>ESPD Kits Flasher</h1>
+  <p class="warn" id="serial-warn" hidden>
+    Web Serial needs <strong>Chrome</strong> or <strong>Edge</strong> on desktop.
+  </p>
+  <p>
+    Manifest: <code id="manifest-path">manifests/releases.json</code>
+    (<span id="manifest-status">loading…</span>)
+  </p>
+  <label>Board
+    <select id="board-select" disabled></select>
+  </label>
+  <p>
+    <button id="flash-btn" disabled>Connect &amp; flash</button>
+    — UI stub; port logic from
+    <a href="https://flasher.michaelkramer.at/">flasher.michaelkramer.at</a>
+    will be integrated next.
+  </p>
+  <pre id="log"></pre>
+  <script>
+    const log = (msg) => {
+      document.getElementById('log').textContent += msg + '\n';
+    };
+    if (!('serial' in navigator)) {
+      document.getElementById('serial-warn').hidden = false;
+    }
+    const manifestUrl = new URL('manifests/releases.json', document.baseURI).href;
+    fetch(manifestUrl)
+      .then((r) => r.json())
+      .then((m) => {
+        document.getElementById('manifest-status').textContent =
+          'v' + m.version + ' — ' + m.boards.length + ' board(s)';
+        const sel = document.getElementById('board-select');
+        m.boards.forEach((b) => {
+          const o = document.createElement('option');
+          o.value = b.id;
+          o.textContent = b.name + ' (' + b.target + ')';
+          sel.appendChild(o);
+        });
+        sel.disabled = false;
+        document.getElementById('flash-btn').disabled = false;
+        log(JSON.stringify(m, null, 2));
+      })
+      .catch((e) => {
+        document.getElementById('manifest-status').textContent = 'failed: ' + e;
+      });
+    document.getElementById('flash-btn').addEventListener('click', () => {
+      log('Flash not implemented in scaffold — use esptool or full flasher UI.');
+    });
+  </script>
+</body>
+</html>

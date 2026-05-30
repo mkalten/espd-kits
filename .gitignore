@@ -1,0 +1,13 @@
+dist/
+.DS_Store
+*.pyc
+__pycache__/
+.env
+node_modules/
+
+# espd build artifacts if built in-tree
+espd/build/
+espd/sdkconfig
+espd/sdkconfig.old
+espd/managed_components/
+espd/dependencies.lock

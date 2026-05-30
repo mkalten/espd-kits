@@ -1,0 +1,81 @@
+name: Build kit firmware
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        board: [waveshare_s3]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Append board Kconfig choice (ephemeral)
+        run: |
+          BOARD="${{ matrix.board }}"
+          TARGET=$(python3 -c "import yaml; print(yaml.safe_load(open('boards/${BOARD}.yaml'))['target'])")
+          MARKER="# espd-kits board select (${BOARD})"
+          DEFAULTS="espd/sdkconfig.defaults.${TARGET}"
+          if ! grep -qF "$MARKER" "$DEFAULTS"; then
+            { echo ""; echo "$MARKER"; cat "config/boards/${BOARD}.select"; } >> "$DEFAULTS"
+          fi
+
+      - name: Sync boards into espd
+        run: |
+          for f in boards/*.yaml; do
+            base=$(basename "$f")
+            [[ "$base" == "index.yaml" ]] && continue
+            cp -f "$f" "espd/boards/$base"
+          done
+          ./espd/scripts/apply-pd-patches.sh
+
+      - name: Build firmware
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v6.0.1
+          target: esp32s3
+          command: idf.py build
+          path: espd
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p "dist/${{ matrix.board }}"
+          cp espd/build/espd.bin \
+             espd/build/bootloader/bootloader.bin \
+             espd/build/partition_table/partition-table.bin \
+             espd/build/flash_args \
+             "dist/${{ matrix.board }}/"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: espd-kit-${{ matrix.board }}-${{ github.sha }}
+          path: dist/${{ matrix.board }}/
+
+      - name: Generate manifest snippet
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          pip install pyyaml
+          python3 scripts/generate-manifest.py \
+            --version "${GITHUB_REF_NAME}" \
+            --base-url "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}"
+
+      - name: Upload release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/${{ matrix.board }}/espd.bin
+            dist/${{ matrix.board }}/bootloader.bin
+            dist/${{ matrix.board }}/partition-table.bin
+            dist/${{ matrix.board }}/flash_args
+            manifests/releases.json

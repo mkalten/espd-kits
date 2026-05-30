@@ -1,0 +1,2 @@
+# Appended to espd/sdkconfig.defaults.<target> during kit CI/local build only.
+CONFIG_ESPD_BOARD_WAVESHARE_S3=y

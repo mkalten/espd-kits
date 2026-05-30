@@ -1,0 +1,5 @@
+# CI matrix and manifest source (ids must match boards/*.yaml and config/boards/*.select)
+boards:
+  - id: waveshare_s3
+    target: esp32s3
+    name: Waveshare ESP32-S3-AUDIO

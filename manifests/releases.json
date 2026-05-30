@@ -1,0 +1,10 @@
+{
+  "version": "dev",
+  "boards": [
+    {
+      "id": "waveshare_s3",
+      "name": "Waveshare ESP32-S3-AUDIO",
+      "target": "esp32s3"
+    }
+  ]
+}
