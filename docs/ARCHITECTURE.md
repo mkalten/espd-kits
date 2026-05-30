@@ -73,7 +73,7 @@ See `scripts/generate-manifest.py` and [flasher/INTEGRATION.md](../flasher/INTEG
 | Workflow | Trigger | Output |
 |----------|---------|--------|
 | `build.yml` | push, tags `v*` | matrix from `boards/index.yaml`; artifacts; release on tag |
-| `pages.yml` | push, tags | deploy `flasher/` |
+| `pages.yml` | push to `main` | deploy `flasher/` |
 
 ## Follow-ups in `espd`
 

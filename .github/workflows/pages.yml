@@ -3,7 +3,6 @@ name: Deploy flasher (Pages)
 on:
   push:
     branches: [main, master]
-    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
