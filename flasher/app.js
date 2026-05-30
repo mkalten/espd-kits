@@ -16,6 +16,7 @@ let showLog = false
 let monPort = null
 let monReader = null
 let monBuf = ''
+let monFollowLog = true
 
 const $ = id => document.getElementById(id)
 const show = (el, on) => { el.classList.toggle('hidden', !on) }
@@ -396,17 +397,53 @@ function showMonitorConnected() {
   show($('mon-disc-btn'), true)
   show($('mon-status'), true)
   show($('mon-clear-btn'), true)
-  show($('monitor-term'), true)
+  show($('mon-fullscreen-btn'), true)
+  show($('monitor-wrap'), true)
   show($('monitor-cursor'), true)
+  monFollowLog = true
+  show($('mon-scroll-end'), false)
 }
 
 function showMonitorDisconnected() {
+  if (document.fullscreenElement === $('monitor-wrap')) {
+    document.exitFullscreen().catch(() => {})
+  }
   show($('mon-connect-btn'), true)
   show($('mon-disc-btn'), false)
   show($('mon-status'), false)
   show($('mon-clear-btn'), false)
-  show($('monitor-term'), false)
+  show($('mon-fullscreen-btn'), false)
+  show($('monitor-wrap'), false)
   show($('monitor-cursor'), false)
+  show($('mon-scroll-end'), false)
+  show($('mon-fs-controls'), false)
+  $('mon-fullscreen-btn').textContent = 'Fullscreen'
+  monFollowLog = true
+}
+
+function updateMonitorFullscreen() {
+  const on = document.fullscreenElement === $('monitor-wrap')
+  show($('mon-fs-controls'), on)
+  $('mon-fullscreen-btn').textContent = on ? 'Exit fullscreen' : 'Fullscreen'
+  if (monFollowLog) scrollMonitorToEnd()
+}
+
+async function toggleMonitorFullscreen() {
+  const wrap = $('monitor-wrap')
+  if (document.fullscreenElement === wrap) await document.exitFullscreen()
+  else await wrap.requestFullscreen()
+}
+
+function isMonitorAtBottom() {
+  const el = $('monitor-term')
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 12
+}
+
+function scrollMonitorToEnd() {
+  const el = $('monitor-term')
+  el.scrollTop = el.scrollHeight
+  monFollowLog = true
+  show($('mon-scroll-end'), false)
 }
 
 async function closeMonitor() {
@@ -431,7 +468,8 @@ function appendLine(text) {
   $('monitor-lines').appendChild(div)
   while ($('monitor-lines').children.length > 500)
     $('monitor-lines').removeChild($('monitor-lines').firstChild)
-  $('monitor-term').scrollTop = $('monitor-term').scrollHeight
+  if (monFollowLog) scrollMonitorToEnd()
+  else show($('mon-scroll-end'), true)
 }
 
 $('mon-connect-btn').addEventListener('click', async () => {
@@ -445,7 +483,7 @@ $('mon-connect-btn').addEventListener('click', async () => {
     readMonitor(port)
   } catch (err) {
     appendLine('[Error] ' + (err?.message ?? err))
-    show($('monitor-term'), true)
+    show($('monitor-wrap'), true)
     show($('mon-clear-btn'), true)
   }
 })
@@ -477,7 +515,23 @@ async function readMonitor(port) {
 }
 
 $('mon-disc-btn').addEventListener('click', async () => { await closeMonitor() })
-$('mon-clear-btn').addEventListener('click', () => { $('monitor-lines').innerHTML = '' })
+$('mon-clear-btn').addEventListener('click', () => {
+  $('monitor-lines').innerHTML = ''
+  scrollMonitorToEnd()
+})
+$('monitor-term').addEventListener('scroll', () => {
+  if (isMonitorAtBottom()) scrollMonitorToEnd()
+  else {
+    monFollowLog = false
+    show($('mon-scroll-end'), true)
+  }
+})
+$('mon-scroll-end').addEventListener('click', scrollMonitorToEnd)
+$('mon-fullscreen-btn').addEventListener('click', () => toggleMonitorFullscreen())
+$('mon-fs-exit').addEventListener('click', () => document.exitFullscreen())
+$('mon-fs-clear').addEventListener('click', () => $('mon-clear-btn').click())
+$('mon-fs-disc').addEventListener('click', () => $('mon-disc-btn').click())
+document.addEventListener('fullscreenchange', updateMonitorFullscreen)
 
 if (!('serial' in navigator)) show($('serial-warning'), true)
 if (location.protocol === 'file:') setTab(true)
