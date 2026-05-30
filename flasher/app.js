@@ -391,6 +391,24 @@ $('flash-btn').addEventListener('click', async () => {
   }
 })
 
+function resetMonitorUi() {
+  show($('mon-connect-btn'), true)
+  show($('mon-reset-btn'), false)
+  show($('mon-disc-btn'), false)
+  show($('mon-status'), false)
+  show($('monitor-cursor'), false)
+}
+
+async function closeMonitor() {
+  const port = monPort
+  const reader = monReader
+  monPort = null
+  monReader = null
+  try { await reader?.cancel() } catch (_) {}
+  try { await port?.close() } catch (_) {}
+  resetMonitorUi()
+}
+
 function appendLine(text) {
   const div = document.createElement('div')
   div.textContent = text
@@ -436,6 +454,13 @@ async function readMonitor(port) {
       }
     }
   } catch (_) {}
+  finally {
+    monReader = null
+    if (monPort === port) {
+      monPort = null
+      resetMonitorUi()
+    }
+  }
 }
 
 $('mon-reset-btn').addEventListener('click', async () => {
@@ -444,12 +469,12 @@ $('mon-reset-btn').addEventListener('click', async () => {
     await monPort.setSignals({ dataTerminalReady: false, requestToSend: true })
     await new Promise(r => setTimeout(r, 100))
     await monPort.setSignals({ dataTerminalReady: true, requestToSend: false })
-  } catch (err) { appendLine('[Reset error] ' + (err?.message ?? err)) }
+  } catch (err) {
+    appendLine('[Reset error] ' + (err?.message ?? err))
+    await closeMonitor()
+  }
 })
-$('mon-disc-btn').addEventListener('click', async () => {
-  try { await monReader?.cancel() } catch (_) {}
-  try { await monPort?.close() } catch (_) {}
-})
+$('mon-disc-btn').addEventListener('click', () => closeMonitor())
 $('mon-clear-btn').addEventListener('click', () => { $('monitor-lines').innerHTML = '' })
 
 if (!('serial' in navigator)) show($('serial-warning'), true)
