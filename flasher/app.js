@@ -42,7 +42,7 @@ let syncWatchPaused = false
 let syncReconnecting = false
 
 function syncLog(msg) {
-  appendLine(`[sync] ${msg}`)
+  appendLine(msg, 'sync')
 }
 
 function syncCallbacks() {
@@ -755,25 +755,25 @@ function classifyLine(text) {
   return 'pd'
 }
 
-function classifyLogLine(text) {
-  if (text.startsWith('[sync] ')) {
-    const body = text.slice(7)
-    if (body.startsWith('→ ')) return 'dev-tx'
-    if (body.startsWith('← ')) return classifyLine(body.slice(2))
-    if (body.startsWith('+') || body.startsWith('-ERR')) return classifyLine(body)
-    return 'script'
-  }
+function classifySyncLine(text) {
+  if (text.startsWith('→ ')) return 'dev-tx'
+  if (text.startsWith('← ')) return classifyLine(text.slice(2))
+  return 'script'
+}
+
+function classifyLogLine(text, source) {
+  if (source === 'sync') return classifySyncLine(text)
   if (text.startsWith('[Error] ')) return 'dev-err'
   return classifyLine(text)
 }
 
-function logLineClass(text) {
-  return `log-line log-${classifyLogLine(text)}`
+function logLineClass(text, source) {
+  return `log-line log-${classifyLogLine(text, source)}`
 }
 
-function appendLine(text) {
+function appendLine(text, source) {
   const div = document.createElement('div')
-  div.className = logLineClass(text)
+  div.className = logLineClass(text, source)
   div.textContent = text
   $('monitor-lines').appendChild(div)
   while ($('monitor-lines').children.length > 500)
