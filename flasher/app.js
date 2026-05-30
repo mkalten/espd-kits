@@ -532,7 +532,7 @@ function renderProgress(phase, msg, pct) {
     ? `<button type="button" class="shrink-0 text-[10px] font-bold uppercase tracking-wider text-neutral-400 hover:text-black" id="log-toggle-btn">${showLog ? 'Log ▲' : 'Log ▼'}</button>`
     : ''
   const logHtml = showLog
-    ? `<div class="mt-2 max-h-40 overflow-y-auto border border-neutral-200 bg-neutral-50 p-3 font-mono text-[10px] leading-relaxed text-neutral-600">${flashLog.map(l => `<div>${l}</div>`).join('')}</div>`
+    ? `<div class="mt-2 max-h-40 overflow-y-auto border border-neutral-200 bg-neutral-50 p-3 font-mono text-[10px] leading-relaxed text-neutral-600">${flashLog.map(l => `<div>${highlightLogLine(l)}</div>`).join('')}</div>`
     : ''
   $('flash-progress').innerHTML =
     `<div class="mb-2 flex items-center justify-between gap-4"><div class="flex items-center gap-2"><span class="h-1.5 w-1.5 shrink-0 rounded-full ${dotCls}"></span><span class="text-xs font-bold uppercase tracking-wider ${isErr ? 'text-red-500' : 'text-neutral-700'}">${label}</span></div>${pctHtml}</div>` +
@@ -706,9 +706,40 @@ async function closeMonitor() {
   showMonitorDisconnected()
 }
 
+function escapeHtml(s) {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function highlightLogBody(s) {
+  return s
+    .replace(/\b(E \(\d+\))/g, '<span class="log-err">$1</span>')
+    .replace(/\b(W \(\d+\))/g, '<span class="log-warn">$1</span>')
+    .replace(/\b(I \(\d+\))/g, '<span class="log-info">$1</span>')
+    .replace(/\+OK[^\n]*/g, m => `<span class="log-ok">${m}</span>`)
+    .replace(/-ERR[^\n]*/g, m => `<span class="log-err">${m}</span>`)
+    .replace(/\b0x[0-9a-fA-F]+\b/g, '<span class="log-hex">$&</span>')
+    .replace(/\b\d+(?:\.\d+)?%/g, '<span class="log-num">$&</span>')
+    .replace(/\b(RELOAD|RESET|STATUS|PUT|MODE|MSC_SYNC|NORMAL)\b/g, '<span class="log-cmd">$1</span>')
+}
+
+function highlightLogLine(text) {
+  const s = escapeHtml(text)
+  if (s.startsWith('[sync] ')) {
+    return `<span class="log-tag log-sync">[sync]</span> ${highlightLogBody(s.slice(7))}`
+  }
+  if (s.startsWith('[Error] ')) {
+    return `<span class="log-tag log-err">[Error]</span> ${highlightLogBody(s.slice(8))}`
+  }
+  return highlightLogBody(s)
+}
+
 function appendLine(text) {
   const div = document.createElement('div')
-  div.textContent = text
+  div.innerHTML = highlightLogLine(text)
   $('monitor-lines').appendChild(div)
   while ($('monitor-lines').children.length > 500)
     $('monitor-lines').removeChild($('monitor-lines').firstChild)
