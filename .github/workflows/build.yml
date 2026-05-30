@@ -30,7 +30,6 @@ jobs:
           TARGET=$(python3 -c "import yaml; print(yaml.safe_load(open('boards/${{ matrix.board }}.yaml'))['target'])")
           echo "target=${TARGET}" >> "$GITHUB_OUTPUT"
 
-      # esp-idf-ci-action only passes IDF_TARGET into Docker — write overlay in espd/.
       - name: Prepare sdkconfig.defaults.local
         run: |
           cp "boards/${{ matrix.board }}.yaml" "espd/boards/${{ matrix.board }}.yaml"
@@ -60,21 +59,47 @@ jobs:
           name: espd-kit-${{ matrix.board }}-${{ github.sha }}
           path: dist/${{ matrix.board }}/
 
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: espd-kit-*-${{ github.sha }}
+          merge-multiple: true
+          path: dist
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          for board_dir in dist/*/; do
+            board=$(basename "$board_dir")
+            cp "${board_dir}bootloader.bin" "release-assets/${board}-bootloader.bin"
+            cp "${board_dir}partition-table.bin" "release-assets/${board}-partition-table.bin"
+            cp "${board_dir}espd.bin" "release-assets/${board}-espd.bin"
+            cp "${board_dir}flash_args" "release-assets/${board}-flash_args"
+          done
+          ls -la release-assets
+
       - name: Generate manifest
-        if: startsWith(github.ref, 'refs/tags/')
         run: |
           pip install pyyaml
           python3 scripts/generate-manifest.py \
             --version "${GITHUB_REF_NAME}" \
+            --base-url "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}" \
+            -o release-assets/manifest.json
+          python3 scripts/generate-manifest.py \
+            --version "${GITHUB_REF_NAME}" \
             --base-url "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}"
+          python3 scripts/generate-manifest.py --catalog
 
-      - name: Upload release assets
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
+          generate_release_notes: true
           files: |
-            dist/${{ matrix.board }}/espd.bin
-            dist/${{ matrix.board }}/bootloader.bin
-            dist/${{ matrix.board }}/partition-table.bin
-            dist/${{ matrix.board }}/flash_args
-            manifests/releases.json
+            release-assets/**/*
