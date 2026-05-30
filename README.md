@@ -35,9 +35,7 @@ cd espd-kits
 
 ## Web flasher
 
-GitHub Pages will serve the vendored UI in [`flasher/`](flasher/) (see [flasher/INTEGRATION.md](flasher/INTEGRATION.md)). Today that is a stub; production UI lives at [ESPD Web Flasher](https://flasher.michaelkramer.at/) until source is integrated. Manifest: [`manifests/releases.json`](manifests/releases.json).
-
-Firmware URLs point at **GitHub Release** assets for this repo (or a CDN mirror).
+GitHub Pages serves [`flasher/`](flasher/) — a Web Serial UI for the **Waveshare ESP32-S3-AUDIO** kit. Firmware binaries come from this repo’s **GitHub Releases** (built by CI on tags). Board metadata: [`manifests/releases.json`](manifests/releases.json).
 
 ## Docs
 

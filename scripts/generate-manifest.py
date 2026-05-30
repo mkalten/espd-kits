@@ -46,14 +46,14 @@ def main() -> int:
             "target": b["target"],
         }
         if base:
-            prefix = f"{base}/{bid}"
+            # Release assets are uploaded at the tag root (see .github/workflows/build.yml).
             entry["files"] = {
-                "bootloader": {"url": f"{prefix}/bootloader.bin", "offset": 0},
+                "bootloader": {"url": f"{base}/bootloader.bin", "offset": 0},
                 "partition_table": {
-                    "url": f"{prefix}/partition-table.bin",
+                    "url": f"{base}/partition-table.bin",
                     "offset": 32768,
                 },
-                "app": {"url": f"{prefix}/espd.bin", "offset": 65536},
+                "app": {"url": f"{base}/espd.bin", "offset": 65536},
             }
         out_boards.append(entry)
 
