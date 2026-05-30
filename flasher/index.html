@@ -149,7 +149,7 @@
 
     <section class="mt-16 border-t border-neutral-200 pt-8">
       <h3 class="mb-1 text-xs font-bold uppercase tracking-[0.12em] text-neutral-400">Serial monitor</h3>
-      <p class="mb-5 text-sm text-neutral-500">Optional — after flashing, open the port again to read the boot log. Use the board’s RESET button to reboot. Flashing and monitoring use separate connections.</p>
+      <p class="mb-5 text-sm text-neutral-500">Optional — after flashing, open the port again to read the boot log. When connected over CDC sync, use the field below the log to send Pd messages (same <code class="text-neutral-600">MSG</code> command as <code class="text-neutral-600">espd_sync.py --pd-msg</code>). Use the board’s RESET button to reboot.</p>
       <div class="mb-3 flex flex-wrap items-center gap-3">
         <button type="button" class="sec-btn inline-flex items-center gap-2 border border-neutral-300 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-neutral-700 transition hover:border-black hover:text-black" id="mon-connect-btn">Open monitor</button>
       </div>
@@ -166,11 +166,15 @@
             <button type="button" class="sec-btn inline-flex items-center gap-2 border border-neutral-300 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-neutral-700 transition hover:border-black hover:text-black" id="mon-expand-btn">Expand log</button>
           </span>
         </div>
-        <div id="monitor-term" class="h-64 overflow-y-auto border border-neutral-200 bg-neutral-50 p-3 font-mono text-xs leading-relaxed text-neutral-800">
+        <div id="monitor-term" class="relative h-64 overflow-y-auto border border-neutral-200 bg-neutral-50 p-3 font-mono text-xs leading-relaxed text-neutral-800">
           <div id="monitor-lines"></div>
           <span id="monitor-cursor" class="hidden animate-pulse text-neutral-300">▌</span>
+          <button type="button" id="mon-scroll-end" class="absolute bottom-3 right-3 hidden border border-neutral-300 bg-white px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-700 shadow-sm transition hover:border-black hover:text-black" aria-label="Jump to latest log lines">Latest ↓</button>
         </div>
-        <button type="button" id="mon-scroll-end" class="absolute bottom-3 right-3 hidden border border-neutral-300 bg-white px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-700 shadow-sm transition hover:border-black hover:text-black" aria-label="Jump to latest log lines">Latest ↓</button>
+        <form id="mon-pd-send" class="mt-3 hidden flex gap-2">
+          <input type="text" id="mon-pd-input" maxlength="220" autocomplete="off" spellcheck="false" placeholder="Pd message, e.g. pd dsp 1" class="min-w-0 flex-1 border border-neutral-300 bg-white px-3 py-2 font-mono text-xs outline-none focus:border-black" />
+          <button type="submit" class="sec-btn shrink-0 border border-neutral-300 px-4 py-2 text-xs font-bold uppercase tracking-wider text-neutral-700 transition hover:border-black hover:text-black" id="mon-pd-btn">Send</button>
+        </form>
       </div>
     </section>
 

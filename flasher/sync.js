@@ -283,6 +283,14 @@ export class EspdSyncClient {
     } catch (_) {}
   }
 
+  async sendPd(message) {
+    const msg = message.trim()
+    if (!msg) throw new Error('empty Pd message')
+    const line = await this.command(`MSG ${msg}`, 5000)
+    if (line.startsWith('-ERR')) throw new Error(line)
+    return line
+  }
+
   async putFile(relPath, data) {
     const crc = crc32Bytes(data)
     const nbytes = data.length

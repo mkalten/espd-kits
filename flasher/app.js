@@ -152,6 +152,7 @@ async function runSync(label, onlyRels = null) {
   syncWatchPaused = true
   stopSyncWatch()
   setSyncUi(true)
+  updateMonitorToolbar()
   $('sync-status').textContent = 'Syncing…'
   try {
     const includeAssets = $('sync-assets').checked
@@ -179,6 +180,7 @@ async function runSync(label, onlyRels = null) {
     syncBusy = false
     syncWatchPaused = false
     setSyncUi(!!syncClient)
+    updateMonitorToolbar()
     if (syncClient) resumeSyncWatch()
   }
 }
@@ -659,6 +661,7 @@ function updateMonitorToolbar() {
   const syncing = !!syncClient
   const monitoring = !!monPort && !syncing
   const logOpen = syncing || monitoring || monLogOpen
+  const canSendPd = syncing || monitoring
 
   show($('mon-connect-btn'), !syncing && !monitoring)
   show($('mon-disc-btn'), monitoring)
@@ -666,6 +669,9 @@ function updateMonitorToolbar() {
   show($('mon-log-actions'), logOpen)
   show($('monitor-wrap'), logOpen)
   show($('monitor-cursor'), logOpen)
+  show($('mon-pd-send'), logOpen && canSendPd)
+  $('mon-pd-btn').disabled = syncBusy
+  $('mon-pd-input').disabled = syncBusy
 }
 
 function showSyncLogPanel() {
@@ -728,6 +734,30 @@ async function closeMonitor() {
     try { await port.close() } catch (_) {}
   }
   showMonitorDisconnected()
+}
+
+async function sendPdMessage(text) {
+  const msg = text.trim()
+  if (!msg || syncBusy) return
+  if (/[\r\n]/.test(msg)) {
+    syncLog('Pd message must be a single line')
+    return
+  }
+  try {
+    if (syncClient) {
+      await syncClient.sendPd(msg)
+    } else if (monPort?.writable) {
+      appendLine(`→ MSG ${msg}`, 'sync')
+      const writer = monPort.writable.getWriter()
+      try {
+        await writer.write(new TextEncoder().encode(`MSG ${msg}\n`))
+      } finally {
+        writer.releaseLock()
+      }
+    }
+  } catch (e) {
+    syncLog(`Pd send failed: ${e.message || e}`)
+  }
 }
 
 function escapeHtml(s) {
@@ -837,6 +867,13 @@ $('monitor-term').addEventListener('wheel', e => {
   }
 }, { passive: true })
 $('mon-scroll-end').addEventListener('click', scrollMonitorToEnd)
+$('mon-pd-send').addEventListener('submit', e => {
+  e.preventDefault()
+  const input = $('mon-pd-input')
+  const text = input.value
+  input.value = ''
+  sendPdMessage(text)
+})
 $('mon-expand-btn').addEventListener('click', toggleMonitorExpanded)
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && monExpanded) setMonitorExpanded(false)
