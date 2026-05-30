@@ -56,10 +56,12 @@ function syncCallbacks() {
 }
 
 function onSyncDisconnect() {
-  if (syncReconnecting) return
+  if (syncReconnecting || syncBusy) return
   syncLog('device disconnected')
-  syncClient = null
-  syncBusy = false
+  if (syncClient) {
+    syncClient.close().catch(() => {})
+    syncClient = null
+  }
   stopSyncWatch()
   setSyncUi(false)
   $('sync-status').textContent = 'Disconnected — Connect & sync again'

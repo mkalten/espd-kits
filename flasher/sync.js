@@ -109,6 +109,7 @@ export class EspdSyncClient {
     this.reader = null
     this.writer = null
     this.stopped = false
+    this.disconnected = false
     this.putActive = false
     this.pendingReply = null
     this.lastStatus = null
@@ -123,23 +124,43 @@ export class EspdSyncClient {
     await ensurePortOpen(this.port)
     await this.port.setSignals?.({ dataTerminalReady: true, requestToSend: true }).catch(() => {})
     if (this.reader) {
+      try { await this.reader.cancel() } catch (_) {}
       try { this.reader.releaseLock() } catch (_) {}
+      this.reader = null
     }
     if (this.writer) {
       try { await this.writer.close() } catch (_) {}
+      try { this.writer.releaseLock?.() } catch (_) {}
+      this.writer = null
     }
     this.writer = this.port.writable.getWriter()
     this.reader = this.port.readable.getReader()
     this.stopped = false
+    this.disconnected = false
     this._readLoop()
     await sleep(250)
   }
 
+  async ensureOpen() {
+    if (this.disconnected || this.stopped || !this.writer || !this.reader
+        || !this.port.readable || !this.port.writable) {
+      await this.open()
+    }
+  }
+
+  _markDisconnected() {
+    this.disconnected = true
+  }
+
+  _ioAlive() {
+    return !this.disconnected && !this.stopped && this.writer && this.reader
+      && this.port.readable && this.port.writable
+  }
+
   async close() {
     this.stopped = true
-    if (this.pendingReply) {
-      this.pendingReply = null
-    }
+    this.disconnected = true
+    this.pendingReply = null
     try { await this.reader?.cancel() } catch (_) {}
     try { this.reader?.releaseLock() } catch (_) {}
     this.reader = null
@@ -158,9 +179,10 @@ export class EspdSyncClient {
 
   async _readLoop() {
     const decoder = new TextDecoder()
+    const reader = this.reader
     try {
-      while (!this.stopped) {
-        const { value, done } = await this.reader.read()
+      while (!this.stopped && this.reader === reader) {
+        const { value, done } = await reader.read()
         if (done) break
         this._buf += decoder.decode(value, { stream: true })
         let idx
@@ -184,17 +206,29 @@ export class EspdSyncClient {
           }
         }
       }
-    } catch (_) {}
-    finally {
-      if (!this.stopped) this.onDisconnect()
+    } catch (_) {
+      if (this.reader === reader) this._markDisconnected()
+    } finally {
+      if (!this.stopped && this.reader === reader) {
+        this._markDisconnected()
+        this.onDisconnect()
+      }
     }
+  }
+
+  _clearPendingReply() {
+    this.pendingReply = null
   }
 
   _waitReply(timeoutMs) {
     return new Promise((resolve, reject) => {
       const t = setTimeout(() => {
         this.pendingReply = null
-        reject(new Error('device reply timeout'))
+        if (!this._ioAlive()) {
+          reject(new Error('serial disconnected'))
+        } else {
+          reject(new Error('device reply timeout'))
+        }
       }, timeoutMs)
       this.pendingReply = line => {
         clearTimeout(t)
@@ -204,8 +238,16 @@ export class EspdSyncClient {
   }
 
   async command(text, timeoutMs = 10000) {
+    await this.ensureOpen()
+    if (!this.writer) throw new Error('serial disconnected')
+    this._clearPendingReply()
     this.log(`→ ${text.trim()}`)
-    await this.writer.write(new TextEncoder().encode(text.endsWith('\n') ? text : text + '\n'))
+    try {
+      await this.writer.write(new TextEncoder().encode(text.endsWith('\n') ? text : text + '\n'))
+    } catch (e) {
+      this._markDisconnected()
+      throw new Error(`serial disconnected: ${e.message || e}`)
+    }
     return this._waitReply(timeoutMs)
   }
 
@@ -244,7 +286,7 @@ export class EspdSyncClient {
   async putFile(relPath, data) {
     const crc = crc32Bytes(data)
     const nbytes = data.length
-    const probeTimeout = Math.max(20000, nbytes / 50)
+    const probeTimeout = Math.max(30000, nbytes / 40)
     const doneTimeout = Math.max(60000, nbytes / 8)
     let line = ''
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -252,8 +294,16 @@ export class EspdSyncClient {
         line = await this.command(`PUT ${relPath} ${nbytes} ${crc.toString(16).padStart(8, '0')}`, probeTimeout)
         break
       } catch (e) {
-        if (attempt === 0) {
+        const msg = String(e.message || e)
+        if (attempt === 0 && /timeout|disconnected/i.test(msg)) {
           this.log(`PUT ${relPath}: no reply, retrying…`)
+          this._clearPendingReply()
+          try {
+            await this.ensureOpen()
+          } catch (_) {
+            throw new Error('serial disconnected')
+          }
+          await sleep(300)
           continue
         }
         throw e
@@ -269,8 +319,14 @@ export class EspdSyncClient {
     try {
       let nextSend = performance.now()
       for (let off = 0; off < data.length; off += PUT_CHUNK) {
+        if (!this.writer) throw new Error('serial disconnected')
         const part = data.subarray(off, off + PUT_CHUNK)
-        await this.writer.write(part)
+        try {
+          await this.writer.write(part)
+        } catch (e) {
+          this._markDisconnected()
+          throw new Error(`serial disconnected: ${e.message || e}`)
+        }
         nextSend += (part.length / PUT_BPS) * 1000
         const wait = nextSend - performance.now()
         if (wait > 0) await sleep(wait)
@@ -436,7 +492,7 @@ export async function syncFileList(client, dirHandle, rels, onLog, reconnect) {
         break
       } catch (e) {
         const msg = String(e.message || e)
-        if (/timeout|disconnect|closed|break/i.test(msg)) {
+        if (/timeout|disconnect|closed|break|null/i.test(msg)) {
           onLog?.(`disconnect during PUT ${rel}; reconnecting…`)
           await client.close().catch(() => {})
           client = await reconnect()
