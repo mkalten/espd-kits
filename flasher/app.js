@@ -46,6 +46,7 @@ let syncWanted = false
 let syncMaintainerGen = 0
 let monWanted = false
 let monMaintainerGen = 0
+let monWakeWait = null
 let pdMsgHistory = []
 let pdHistoryIdx = 0
 let pdHistoryDraft = ''
@@ -120,8 +121,16 @@ function kickSyncMaintainer() {
   })()
 }
 
+function wakeMonitorMaintainer() {
+  if (monWakeWait) {
+    monWakeWait()
+    monWakeWait = null
+  }
+}
+
 function kickMonitorMaintainer() {
   if (!monWanted || syncClient) return
+  wakeMonitorMaintainer()
   const gen = ++monMaintainerGen
   ;(async () => {
     let announcedWait = false
@@ -133,10 +142,15 @@ function kickMonitorMaintainer() {
           syncLog('waiting for serial port…')
           announcedWait = true
         }
-        await sleep(500)
+        await Promise.race([
+          sleep(500),
+          new Promise(r => { monWakeWait = r }),
+        ])
+        monWakeWait = null
         continue
       }
       announcedWait = false
+      syncLog('monitor reconnected')
       monPort = port
       monBuf = ''
       monFollowLog = true
@@ -145,12 +159,12 @@ function kickMonitorMaintainer() {
         await readMonitorLoop(port)
       } finally {
         monPort = null
+        monReader = null
         try { await port.close() } catch (_) {}
         updateMonitorToolbar()
       }
       if (monWanted && !syncClient && gen === monMaintainerGen) {
         syncLog('port closed — waiting to reconnect…')
-        announcedWait = false
       }
     }
   })()
@@ -816,6 +830,7 @@ function updateMonitorFollowFromScroll() {
 async function closeMonitor() {
   monWanted = false
   monMaintainerGen++
+  wakeMonitorMaintainer()
   if (syncClient) {
     await stopSync()
     return
@@ -1040,8 +1055,15 @@ if (location.protocol === 'file:') setTab(true)
 updateExpandLogButton(false)
 if ('serial' in navigator) {
   navigator.serial.addEventListener('connect', () => {
-    if (monWanted && !monPort && !syncClient) kickMonitorMaintainer()
+    wakeMonitorMaintainer()
     if (syncWanted && !syncClient && !syncBusy) kickSyncMaintainer()
+  })
+  navigator.serial.addEventListener('disconnect', e => {
+    const port = e.target
+    if (monReader && monPort === port) {
+      monReader.cancel().catch(() => {})
+    }
+    wakeMonitorMaintainer()
   })
 }
 fetchGithubReleases()
