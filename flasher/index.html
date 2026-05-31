@@ -158,7 +158,7 @@
 
     <section class="mt-16 border-t border-neutral-200 pt-8">
       <h3 class="mb-1 text-xs font-bold uppercase tracking-[0.12em] text-neutral-400">Serial monitor</h3>
-      <p class="mb-5 text-sm text-neutral-500">Optional — after flashing, open the port again to read the boot log. When connected over CDC sync, use the field below the log to send Pd messages (same <code class="text-neutral-600">MSG</code> command as <code class="text-neutral-600">espd_sync.py --pd-msg</code>). Use the board’s RESET button to reboot.</p>
+      <p class="mb-5 text-sm text-neutral-500">Optional — after flashing, open the port again to read the boot log. Send Pd messages in the field below when connected. Use the board’s RESET button to reboot.</p>
       <div class="mb-3 flex flex-wrap items-center gap-3">
         <button type="button" class="sec-btn inline-flex items-center gap-2 border border-neutral-300 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-neutral-700 transition hover:border-black hover:text-black" id="mon-connect-btn">Open monitor</button>
       </div>
@@ -191,7 +191,7 @@
 
     <section class="mt-16 border-t border-neutral-200 pt-8">
       <h3 class="mb-1 text-xs font-bold uppercase tracking-[0.12em] text-neutral-400">Patch sync</h3>
-      <p class="mb-5 text-sm text-neutral-500">Sync over USB CDC (<code class="text-neutral-600">espd_sync.py</code> protocol). Internal flash: <code class="text-neutral-600">MODE MSC_SYNC</code> once per session (reboot). Reset the board when done — no <code class="text-neutral-600">MODE NORMAL</code> needed.</p>
+      <p class="mb-5 text-sm text-neutral-500">Sync a local Pure Data project folder to the board over USB.</p>
       <div class="mb-3 flex flex-wrap items-center gap-3">
         <button type="button" class="sec-btn inline-flex items-center gap-2 border border-neutral-300 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-neutral-700 transition hover:border-black hover:text-black" id="sync-folder-btn">Choose folder</button>
         <span id="sync-folder-name" class="hidden text-xs text-neutral-500"></span>
