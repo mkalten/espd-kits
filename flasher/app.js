@@ -411,24 +411,45 @@ async function startPatchSync() {
 
 function setMonitorExpanded(on) {
   monExpanded = on
-  $('monitor-wrap').classList.toggle('mon-expanded', on)
-  show($('mon-toolbar-title'), on)
+  const wrap = $('monitor-wrap')
+  const panel = $('monitor-log-panel')
+  const term = $('monitor-term')
+  wrap.classList.toggle('fixed', on)
+  wrap.classList.toggle('inset-0', on)
+  wrap.classList.toggle('z-50', on)
+  wrap.classList.toggle('flex', on)
+  wrap.classList.toggle('flex-col', on)
+  wrap.classList.toggle('bg-white', on)
+  wrap.classList.toggle('p-4', on)
+  wrap.classList.toggle('sm:p-6', on)
+  wrap.classList.toggle('relative', !on)
+  panel.classList.toggle('flex', on)
+  panel.classList.toggle('flex-1', on)
+  panel.classList.toggle('flex-col', on)
+  panel.classList.toggle('min-h-0', on)
+  term.classList.toggle('h-64', !on)
+  term.classList.toggle('flex-1', on)
+  term.classList.toggle('min-h-0', on)
+  term.classList.toggle('h-auto', on)
   updateExpandLogButton(on)
   document.body.classList.toggle('overflow-hidden', on)
+  updateMonitorToolbar()
   if (monFollowLog) scrollMonitorToEnd()
 }
 
-const ICON_EXPAND_LOG = '<svg class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15"/></svg>'
-const ICON_COLLAPSE_LOG = '<svg class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25"/></svg>'
+const ICON_EXPAND_LOG = '<svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15"/></svg>'
+const ICON_COLLAPSE_LOG = '<svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25"/></svg>'
 
 function expandLogButtonHtml(expanded) {
-  const icon = expanded ? ICON_COLLAPSE_LOG : ICON_EXPAND_LOG
-  const label = expanded ? 'Collapse log' : 'Expand log'
-  return `${icon}<span>${label}</span>`
+  return expanded ? ICON_COLLAPSE_LOG : ICON_EXPAND_LOG
 }
 
 function updateExpandLogButton(expanded) {
-  $('mon-expand-btn').innerHTML = expandLogButtonHtml(expanded)
+  const btn = $('mon-expand-btn')
+  const label = expanded ? 'Collapse log' : 'Expand log'
+  btn.innerHTML = expandLogButtonHtml(expanded)
+  btn.title = label
+  btn.setAttribute('aria-label', label)
 }
 
 function toggleMonitorExpanded() {
@@ -828,6 +849,7 @@ function updateMonitorToolbar() {
   }
   show($('mon-log-actions'), logOpen)
   show($('monitor-wrap'), logOpen)
+  show($('mon-toolbar'), logOpen && !monExpanded)
   show($('monitor-cursor'), logOpen && (monitoring || !!syncClient))
   show($('mon-pd-wrap'), logOpen && canSendPd)
   $('mon-pd-btn').disabled = syncBusy
@@ -981,8 +1003,22 @@ function classifyLogLine(text, source) {
   return classifyLine(text)
 }
 
+const LOG_LINE_CLASS = {
+  'script': 'text-neutral-400',
+  'dev-tx': 'text-cyan-600',
+  'dev-ok': 'text-green-600',
+  'dev-err': 'text-red-600',
+  'espd': 'font-semibold text-cyan-600',
+  'pd': 'text-neutral-700',
+  'esp-i': 'text-neutral-500',
+  'esp-d': 'text-neutral-500',
+  'esp-v': 'text-neutral-500',
+  'esp-w': 'text-yellow-600',
+  'esp-e': 'text-red-600',
+}
+
 function logLineClass(text, source) {
-  return `log-line log-${classifyLogLine(text, source)}`
+  return LOG_LINE_CLASS[classifyLogLine(text, source)] || 'text-neutral-700'
 }
 
 function appendLine(text, source) {
