@@ -406,11 +406,20 @@ export async function leaveMscSync(client, callbacks) {
   return waitForAuthorizedPort(60000, callbacks)
 }
 
+export async function waitForStorageReady(client, onLog, maxSec = 45) {
+  const deadline = Date.now() + maxSec * 1000
+  while (Date.now() < deadline) {
+    const info = await client.status()
+    if (info.internal === 'yes') return info
+    onLog('waiting for /storage on device…')
+    await sleep(500)
+  }
+  throw new Error('/storage not ready on device (boot still in progress?)')
+}
+
 export async function ensureMscSyncForWrite(client, callbacks) {
   const onLog = callbacks?.onLog || (() => {})
-  let info = client.lastStatus?.startsWith('+OK STATUS')
-    ? parseStatus(client.lastStatus)
-    : await client.status()
+  let info = await waitForStorageReady(client, onLog)
 
   if (info.mode === 'msc_sync') {
     if (info.internal === 'no') {
@@ -442,9 +451,18 @@ export async function ensureMscSyncForWrite(client, callbacks) {
   throw new Error(`msc_sync failed: mode=${info.mode} internal=${info.internal}`)
 }
 
-export async function prepareForSync(client, callbacks) {
+export async function prepareForSync(client, callbacks, { reconnecting = false } = {}) {
   const onLog = callbacks?.onLog || (() => {})
-  let info = await client.status()
+  if (callbacks?.setReconnecting) callbacks.setReconnecting(true)
+  try {
+    return await prepareForSyncInner(client, callbacks, onLog)
+  } finally {
+    if (callbacks?.setReconnecting) callbacks.setReconnecting(false)
+  }
+}
+
+async function prepareForSyncInner(client, callbacks, onLog) {
+  let info = await waitForStorageReady(client, onLog)
   if (info.sdcard === 'yes') {
     if (info.mode === 'msc_sync') {
       onLog('SD card available — using /sdcard')

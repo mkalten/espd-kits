@@ -180,7 +180,7 @@
 
     <section class="mt-16 border-t border-neutral-200 pt-8">
       <h3 class="mb-1 text-xs font-bold uppercase tracking-[0.12em] text-neutral-400">Patch sync</h3>
-      <p class="mb-5 text-sm text-neutral-500">Sync a local Pure Data project to the board over USB CDC — same protocol as <code class="text-neutral-600">espd_sync.py</code>. Requires firmware with patch sync enabled. After an internal-flash sync the device reboots into <code class="text-neutral-600">msc_sync</code>; the flasher reconnects automatically if the port stays authorized.</p>
+      <p class="mb-5 text-sm text-neutral-500">Sync a Pure Data project over USB CDC (<code class="text-neutral-600">espd_sync.py</code> protocol). Internal flash: one <code class="text-neutral-600">MODE MSC_SYNC</code> reboot hides the USB drive from macOS while syncing; firmware refuses <code class="text-neutral-600">PUT</code> until then. <code class="text-neutral-600">MODE NORMAL</code> restores the volume for drag-and-drop.</p>
       <div class="mb-3 flex flex-wrap items-center gap-3">
         <button type="button" class="sec-btn inline-flex items-center gap-2 border border-neutral-300 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-neutral-700 transition hover:border-black hover:text-black" id="sync-folder-btn">Choose folder</button>
         <span id="sync-folder-name" class="hidden text-xs text-neutral-500"></span>

@@ -48,6 +48,7 @@ function syncLog(msg) {
 function syncCallbacks() {
   return {
     onLog: syncLog,
+    setReconnecting(v) { syncReconnecting = v },
     onDisconnect: onSyncDisconnect,
     onLine(line, kind) {
       if (kind === 'device') appendLine(line)
