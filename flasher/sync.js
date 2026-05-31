@@ -397,15 +397,6 @@ export async function waitForAuthorizedPort(timeoutMs = 60000, callbacks = {}) {
   throw new Error(`CDC port not ready within ${timeoutMs / 1000}s — pick the port again`)
 }
 
-export async function leaveMscSync(client, callbacks) {
-  const onLog = callbacks?.onLog || (() => {})
-  onLog('leaving msc_sync (device will reboot)')
-  await client.setMode('NORMAL')
-  await client.close()
-  await sleep(2500)
-  return waitForAuthorizedPort(60000, callbacks)
-}
-
 export async function waitForStorageReady(client, onLog, maxSec = 45) {
   const deadline = Date.now() + maxSec * 1000
   while (Date.now() < deadline) {
@@ -464,10 +455,7 @@ export async function prepareForSync(client, callbacks, { reconnecting = false }
 async function prepareForSyncInner(client, callbacks, onLog) {
   let info = await waitForStorageReady(client, onLog)
   if (info.sdcard === 'yes') {
-    if (info.mode === 'msc_sync') {
-      onLog('SD card available — using /sdcard')
-      return leaveMscSync(client, callbacks)
-    }
+    onLog('SD card available — using /sdcard')
     return client
   }
   if (info.internal !== 'yes' && info.mode !== 'msc_sync') {
