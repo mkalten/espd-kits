@@ -45,6 +45,7 @@ let syncReconnecting = false
 let syncWanted = false
 let syncMaintainerGen = 0
 let monWanted = false
+let monPick = null
 let monMaintainerGen = 0
 let monWakeWait = null
 let pdMsgHistory = []
@@ -128,6 +129,14 @@ function wakeMonitorMaintainer() {
   }
 }
 
+function flushMonBuf() {
+  let idx
+  while ((idx = monBuf.indexOf('\n')) !== -1) {
+    appendLine(monBuf.slice(0, idx).replace(/\r$/, ''))
+    monBuf = monBuf.slice(idx + 1)
+  }
+}
+
 function kickMonitorMaintainer() {
   if (!monWanted || syncClient) return
   wakeMonitorMaintainer()
@@ -136,8 +145,8 @@ function kickMonitorMaintainer() {
     let announcedWait = false
     while (monWanted && !syncClient && gen === monMaintainerGen) {
       updateMonitorToolbar()
-      const port = await openMonitorPort()
-      if (!port || !monWanted || syncClient || gen !== monMaintainerGen) {
+      const opened = await openMonitorPort({ preferred: monPick })
+      if (!opened || !monWanted || syncClient || gen !== monMaintainerGen) {
         if (!announcedWait) {
           syncLog('waiting for serial port…')
           announcedWait = true
@@ -150,17 +159,19 @@ function kickMonitorMaintainer() {
         continue
       }
       announcedWait = false
+      monPick = opened.port
+      monPort = opened.port
+      monBuf = opened.initial || ''
+      flushMonBuf()
       syncLog('monitor reconnected')
-      monPort = port
-      monBuf = ''
       monFollowLog = true
       updateMonitorToolbar()
       try {
-        await readMonitorLoop(port)
+        await readMonitorLoop(opened.port)
       } finally {
         monPort = null
         monReader = null
-        try { await port.close() } catch (_) {}
+        try { await opened.port.close() } catch (_) {}
         updateMonitorToolbar()
       }
       if (monWanted && !syncClient && gen === monMaintainerGen) {
@@ -957,7 +968,7 @@ $('mon-connect-btn').addEventListener('click', async () => {
   if (monPort || syncClient) return
   try {
     monWanted = true
-    await navigator.serial.requestPort()
+    monPick = await navigator.serial.requestPort()
     monLogOpen = false
     updateMonitorToolbar()
     kickMonitorMaintainer()
@@ -970,19 +981,16 @@ $('mon-connect-btn').addEventListener('click', async () => {
 })
 
 async function readMonitorLoop(port) {
-  const reader = port.readable.getReader()
+  const decoder = new TextDecoderStream()
+  port.readable.pipeTo(decoder.writable).catch(() => {})
+  const reader = decoder.readable.getReader()
   monReader = reader
-  const decoder = new TextDecoder()
   try {
     while (monPort === port && monWanted) {
       const { value, done } = await reader.read()
       if (done) break
-      monBuf += decoder.decode(value, { stream: true })
-      let idx
-      while ((idx = monBuf.indexOf('\n')) !== -1) {
-        appendLine(monBuf.slice(0, idx).replace(/\r$/, ''))
-        monBuf = monBuf.slice(idx + 1)
-      }
+      monBuf += value ?? ''
+      flushMonBuf()
     }
   } catch (_) {}
   finally {
@@ -1054,7 +1062,8 @@ if (location.protocol === 'file:') setTab(true)
 
 updateExpandLogButton(false)
 if ('serial' in navigator) {
-  navigator.serial.addEventListener('connect', () => {
+  navigator.serial.addEventListener('connect', e => {
+    monPick = e.target
     wakeMonitorMaintainer()
     if (syncWanted && !syncClient && !syncBusy) kickSyncMaintainer()
   })

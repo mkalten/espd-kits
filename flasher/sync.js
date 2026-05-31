@@ -357,25 +357,61 @@ export async function requestSerialPort() {
   return navigator.serial.requestPort()
 }
 
-export async function openMonitorPort(timeoutMs = 2500) {
-  const ports = await navigator.serial.getPorts()
-  for (const port of ports) {
+async function orderedPorts(preferred) {
+  const all = await navigator.serial.getPorts()
+  if (!preferred) return all
+  return [preferred, ...all.filter(p => p !== preferred)]
+}
+
+async function openPortFresh(port, timeoutMs) {
+  try { await port.close() } catch (_) {}
+  await sleep(400)
+  let timer
+  try {
+    await Promise.race([
+      port.open({ baudRate: 115200 }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('open timeout')), timeoutMs)
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+  await port.setSignals?.({ dataTerminalReady: true, requestToSend: true }).catch(() => {})
+  await sleep(300)
+}
+
+async function sniffMonitorData(port, maxMs) {
+  const reader = port.readable.getReader()
+  const dec = new TextDecoder()
+  try {
+    const deadline = Date.now() + maxMs
+    while (Date.now() < deadline) {
+      let tick
+      const result = await Promise.race([
+        reader.read(),
+        sleep(350).then(() => { tick = true }),
+      ])
+      if (tick) continue
+      const { value, done } = result
+      if (done) return null
+      if (value?.byteLength) return dec.decode(value, { stream: true })
+    }
+    return null
+  } finally {
+    try { await reader.cancel() } catch (_) {}
+    try { reader.releaseLock() } catch (_) {}
+  }
+}
+
+/** Open CDC monitor port; returns only after first serial bytes (avoids dead opens). */
+export async function openMonitorPort({ timeoutMs = 2500, dataWaitMs = 8000, preferred = null } = {}) {
+  for (const port of await orderedPorts(preferred)) {
     try {
+      await openPortFresh(port, timeoutMs)
+      const initial = await sniffMonitorData(port, dataWaitMs)
+      if (initial !== null) return { port, initial }
       try { await port.close() } catch (_) {}
-      await sleep(200)
-      let timer
-      try {
-        await Promise.race([
-          port.open({ baudRate: 115200 }),
-          new Promise((_, reject) => {
-            timer = setTimeout(() => reject(new Error('open timeout')), timeoutMs)
-          }),
-        ])
-      } finally {
-        clearTimeout(timer)
-      }
-      await port.setSignals?.({ dataTerminalReady: true, requestToSend: true }).catch(() => {})
-      return port
     } catch (_) {
       try { await port.close() } catch (_) {}
     }
