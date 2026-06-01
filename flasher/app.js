@@ -43,6 +43,7 @@ let syncMtimes = new Map()
 let syncWatchPaused = false
 let syncReconnecting = false
 let syncWanted = false
+let syncLogOpen = false
 let syncMaintainerGen = 0
 let syncMaintainerActive = false
 let monWanted = false
@@ -406,15 +407,16 @@ async function startPatchSync() {
   if (!syncDirHandle || syncBusy) return
   await stopSync()
   syncWanted = true
+  syncLogOpen = false
   if (monPort) await closeMonitor()
   syncBusy = true
   setSyncUi(true)
-  showSyncLogPanel()
   monFollowLog = true
   $('sync-status').textContent = 'Connecting…'
   try {
-    syncLog('connecting…')
     syncClient = await connectAndPrepare(requestSerialPort, syncCallbacks())
+    syncLogOpen = true
+    showSyncLogPanel()
     const info = await syncClient.status()
     $('sync-status').textContent = `Connected · target ${syncStorePath(info)}`
     syncBusy = false
@@ -852,11 +854,11 @@ $('flash-btn').addEventListener('click', async () => {
 function updateMonitorToolbar() {
   const syncing = !!syncClient || syncWanted
   const monitoring = !!monPort && !syncClient && !syncWanted
-  const logOpen = syncing || monitoring || monLogOpen || monWanted
+  const logOpen = syncLogOpen || monitoring || monLogOpen || monWanted
   const canSendPd = !!syncClient || !!monPort
 
   show($('mon-connect-btn'), !syncing && !monitoring && !monWanted && !monConnecting)
-  show($('mon-disc-btn'), monWanted || !!syncClient || syncWanted)
+  show($('mon-disc-btn'), logOpen && (monWanted || !!syncClient || syncWanted))
   show($('mon-status'), monitoring)
   if (syncClient) {
     show($('mon-status'), true)
@@ -885,6 +887,7 @@ function showSyncLogPanel() {
 
 function showMonitorDisconnected() {
   monLogOpen = false
+  syncLogOpen = false
   setMonitorExpanded(false)
   clearMonitorCursor()
   show($('mon-scroll-end'), false)
@@ -919,7 +922,7 @@ async function closeMonitor() {
   monMaintainerGen++
   monMaintainerActive = false
   wakeMonitorMaintainer()
-  if (syncClient) {
+  if (syncClient || syncWanted) {
     await stopSync()
     return
   }
