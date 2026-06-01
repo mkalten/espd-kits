@@ -76,9 +76,10 @@ function syncCallbacks() {
 }
 
 function onSyncDisconnect() {
-  if (syncReconnecting || syncBusy || !syncWanted) return
+  if (syncReconnecting || !syncWanted) return
   syncLog('device disconnected — waiting for port…')
   $('sync-status').textContent = 'Waiting for device…'
+  syncLogOpen = true
   if (syncClient) {
     syncClient.close().catch(() => {})
     syncClient = null
@@ -86,7 +87,7 @@ function onSyncDisconnect() {
   stopSyncWatch()
   setSyncUi(true)
   updateMonitorToolbar()
-  kickSyncMaintainer()
+  if (!syncBusy) kickSyncMaintainer()
 }
 
 function kickSyncMaintainer() {
@@ -118,6 +119,7 @@ function kickSyncMaintainer() {
         const info = await client.status()
         $('sync-status').textContent = `Connected · target ${syncStorePath(info)}`
         syncLog('reconnected')
+        openSyncLog()
         await refreshSyncMtimes()
         await resumeSyncWatch()
         setSyncUi(true)
@@ -173,7 +175,7 @@ function stopMonitorPipe() {
 }
 
 function kickMonitorMaintainer() {
-  if (!monWanted || syncClient) return
+  if (!monWanted || syncWanted || syncClient) return
   wakeMonitorMaintainer()
   if (monMaintainerActive) return
   monMaintainerActive = true
@@ -192,7 +194,7 @@ function kickMonitorMaintainer() {
         })
         if (!opened || !alive()) {
           if (alive() && !announcedWait) {
-            syncLog('waiting for serial port…')
+            appendLine('waiting for serial port…', 'sync')
             announcedWait = true
           }
           await Promise.race([
@@ -207,7 +209,7 @@ function kickMonitorMaintainer() {
         monPort = opened.port
         monBuf = opened.initial || ''
         flushMonBuf()
-        if (reconnectProbe) syncLog('monitor reconnected')
+        if (reconnectProbe) appendLine('monitor reconnected', 'sync')
         monFollowLog = true
         updateMonitorToolbar()
         try {
@@ -220,7 +222,7 @@ function kickMonitorMaintainer() {
           updateMonitorToolbar()
         }
         if (alive()) {
-          syncLog('port closed — waiting to reconnect…')
+          appendLine('port closed — waiting to reconnect…', 'sync')
           reconnectProbe = true
         }
       }
@@ -343,6 +345,7 @@ async function runSync(label, onlyRels = null) {
     syncLog(`error: ${e.message || e}`)
     if (!syncClient && syncWanted) {
       $('sync-status').textContent = 'Waiting for device…'
+      openSyncLog()
       kickSyncMaintainer()
     } else if (!syncClient) {
       $('sync-status').textContent = 'Disconnected — Connect & sync again'
@@ -403,20 +406,45 @@ async function startSyncWatch() {
   setWatchingStatus()
 }
 
+async function releaseMonitorPort() {
+  monWanted = false
+  monMaintainerGen++
+  monMaintainerActive = false
+  wakeMonitorMaintainer()
+  stopMonitorPipe()
+  const port = monPort
+  const reader = monReader
+  monPort = null
+  monReader = null
+  monBuf = ''
+  if (reader) {
+    try { await reader.cancel() } catch (_) {}
+    try { reader.releaseLock() } catch (_) {}
+  }
+  if (port) {
+    try { await port.close() } catch (_) {}
+  }
+  updateMonitorToolbar()
+}
+
+function openSyncLog() {
+  syncLogOpen = true
+  updateMonitorToolbar()
+}
+
 async function startPatchSync() {
   if (!syncDirHandle || syncBusy) return
   await stopSync()
+  await releaseMonitorPort()
   syncWanted = true
   syncLogOpen = false
-  if (monPort) await closeMonitor()
   syncBusy = true
   setSyncUi(true)
   monFollowLog = true
   $('sync-status').textContent = 'Connecting…'
   try {
     syncClient = await connectAndPrepare(requestSerialPort, syncCallbacks())
-    syncLogOpen = true
-    showSyncLogPanel()
+    openSyncLog()
     const info = await syncClient.status()
     $('sync-status').textContent = `Connected · target ${syncStorePath(info)}`
     syncBusy = false
@@ -852,25 +880,30 @@ $('flash-btn').addEventListener('click', async () => {
 })
 
 function updateMonitorToolbar() {
-  const syncing = !!syncClient || syncWanted
-  const monitoring = !!monPort && !syncClient && !syncWanted
-  const logOpen = syncLogOpen || monitoring || monLogOpen || monWanted
+  const syncActive = syncWanted || !!syncClient
+  const monitorActive = monWanted || !!monPort
+  const logOpen = syncLogOpen || monLogOpen || monitorActive
   const canSendPd = !!syncClient || !!monPort
 
-  show($('mon-connect-btn'), !syncing && !monitoring && !monWanted && !monConnecting)
-  show($('mon-disc-btn'), logOpen && (monWanted || !!syncClient || syncWanted))
-  show($('mon-status'), monitoring)
+  show($('mon-connect-btn'), !syncActive && !monitorActive && !monConnecting)
+  show($('mon-disc-btn'), logOpen && (syncActive || monitorActive))
+  show($('mon-status'), false)
   if (syncClient) {
     show($('mon-status'), true)
     $('mon-status').innerHTML =
       '<span class="h-1.5 w-1.5 rounded-full bg-green-600"></span> patch sync'
-  } else if (monWanted && !monPort && !syncClient) {
+  } else if (syncWanted && syncLogOpen && !syncClient) {
+    show($('mon-status'), true)
+    $('mon-status').innerHTML =
+      '<span class="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse"></span> waiting for device'
+  } else if (monPort && !syncActive) {
+    show($('mon-status'), true)
+    $('mon-status').innerHTML =
+      '<span class="h-1.5 w-1.5 rounded-full bg-green-600"></span> 115200 baud'
+  } else if (monWanted && !monPort) {
     show($('mon-status'), true)
     $('mon-status').innerHTML =
       '<span class="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse"></span> waiting for port'
-  } else if (monitoring) {
-    $('mon-status').innerHTML =
-      '<span class="h-1.5 w-1.5 rounded-full bg-green-600"></span> 115200 baud'
   }
   show($('mon-log-actions'), logOpen)
   show($('monitor-wrap'), logOpen)
@@ -879,10 +912,6 @@ function updateMonitorToolbar() {
   show($('mon-pd-wrap'), logOpen && canSendPd)
   $('mon-pd-btn').disabled = syncBusy
   $('mon-pd-input').disabled = syncBusy
-}
-
-function showSyncLogPanel() {
-  updateMonitorToolbar()
 }
 
 function showMonitorDisconnected() {
@@ -918,27 +947,12 @@ function updateMonitorFollowFromScroll() {
 }
 
 async function closeMonitor() {
-  monWanted = false
-  monMaintainerGen++
-  monMaintainerActive = false
-  wakeMonitorMaintainer()
   if (syncClient || syncWanted) {
     await stopSync()
     return
   }
-  stopMonitorPipe()
-  const port = monPort
-  const reader = monReader
-  monPort = null
-  monReader = null
-  monBuf = ''
-  if (reader) {
-    try { await reader.cancel() } catch (_) {}
-    try { reader.releaseLock() } catch (_) {}
-  }
-  if (port) {
-    try { await port.close() } catch (_) {}
-  }
+  await releaseMonitorPort()
+  monLogOpen = false
   showMonitorDisconnected()
 }
 
@@ -1062,12 +1076,13 @@ function appendLine(text, source) {
 
 $('mon-connect-btn').addEventListener('click', async () => {
   if (monPort || syncClient || monConnecting) return
+  if (syncWanted) await stopSync()
   monConnecting = true
   updateMonitorToolbar()
   try {
     monPick = await navigator.serial.requestPort()
     monWanted = true
-    monLogOpen = false
+    monLogOpen = true
     updateMonitorToolbar()
     kickMonitorMaintainer()
   } catch (err) {
