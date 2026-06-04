@@ -5,7 +5,7 @@ import {
   connectAndPrepare,
   openAuthorizedPort,
   openMonitorPort,
-  reconnectPrepared,
+  prepareForSync,
   requestSerialPort,
   sleep,
   syncFileList,
@@ -111,7 +111,7 @@ function kickSyncMaintainer() {
       const cb = syncCallbacks(gen)
       try {
         let client = await waitForAuthorizedPort(120000, cb)
-        client = await reconnectPrepared(client, cb)
+        client = await prepareForSync(client, cb)
         if (!syncWanted || gen !== syncMaintainerGen) {
           await client.close().catch(() => {})
           return
@@ -271,7 +271,7 @@ async function reconnectSync() {
   const cb = syncCallbacks(syncMaintainerGen)
   try {
     let client = await waitForAuthorizedPort(60000, cb)
-    return await reconnectPrepared(client, cb)
+    return await prepareForSync(client, cb)
   } catch (_) {
     syncLog('Pick the USB port again (reboot / re-enumeration)')
     return connectAndPrepare(requestSerialPort, cb)
@@ -431,14 +431,13 @@ async function startPatchSync() {
   await stopSync()
   await releaseMonitorPort()
   syncWanted = true
-  syncLogOpen = false
+  openSyncLog()
   syncBusy = true
   setSyncUi(true)
   monFollowLog = true
   $('sync-status').textContent = 'Connecting…'
   try {
     syncClient = await connectAndPrepare(requestSerialPort, syncCallbacks(syncMaintainerGen))
-    openSyncLog()
     const info = await syncClient.status()
     $('sync-status').textContent = `Connected · target ${syncStorePath(info)}`
     syncBusy = false

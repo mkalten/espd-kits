@@ -251,8 +251,8 @@ export class EspdSyncClient {
     return this._waitReply(timeoutMs)
   }
 
-  async status() {
-    const line = await this.command('STATUS', 10000)
+  async status(timeoutMs = 10000) {
+    const line = await this.command('STATUS', timeoutMs)
     if (line.startsWith('+OK STATUS')) {
       this.lastStatus = line
       return parseStatus(line)
@@ -260,9 +260,9 @@ export class EspdSyncClient {
     throw new Error(line)
   }
 
-  deviceStatus() {
+  deviceStatus(timeoutMs = 10000) {
     if (this.lastStatus?.startsWith('+OK STATUS')) return parseStatus(this.lastStatus)
-    return this.status()
+    return this.status(timeoutMs)
   }
 
 
@@ -465,7 +465,7 @@ export async function waitForAuthorizedPort(timeoutMs = 60000, callbacks = {}) {
             throw new Error('aborted')
           }
           try {
-            const info = await client.status()
+            const info = await client.status(1500)
             onLog(`connected: +OK STATUS sdcard=${info.sdcard} internal=${info.internal}`)
             return client
           } catch (_) {
@@ -484,8 +484,10 @@ export async function waitForAuthorizedPort(timeoutMs = 60000, callbacks = {}) {
 
 export async function waitForStorageReady(client, onLog, maxSec = 45) {
   const deadline = Date.now() + maxSec * 1000
+  let first = true
   while (Date.now() < deadline) {
-    const info = await client.status()
+    const info = first ? await client.deviceStatus(1500) : await client.status(1500)
+    first = false
     if (info.internal === 'yes') return info
     onLog('waiting for /storage on device…')
     await sleep(500)
@@ -495,18 +497,15 @@ export async function waitForStorageReady(client, onLog, maxSec = 45) {
 
 export async function ensureStorageForWrite(client, callbacks) {
   const onLog = callbacks?.onLog || (() => { })
-  let info = await waitForStorageReady(client, onLog)
-
-  if (info.internal === 'yes') return client
 
   /* Device is in drive mode (internal flash owned by host).
    * RESET reboots into Pd mode where /storage is APP-mounted. */
   onLog('internal storage not available -- resetting device')
   await client.resetDevice()
   await client.close()
-  await sleep(2500)
+  await sleep(500)
   client = await waitForAuthorizedPort(60000, callbacks)
-  info = await waitForStorageReady(client, onLog)
+  const info = await waitForStorageReady(client, onLog)
   if (info.internal !== 'yes') {
     throw new Error(`/storage still not available after reset (internal=${info.internal})`)
   }
@@ -517,7 +516,7 @@ export async function prepareForSync(client, callbacks, { reconnecting = false }
   const onLog = callbacks?.onLog || (() => { })
   if (callbacks?.setReconnecting) callbacks.setReconnecting(true)
   try {
-    let info = await waitForStorageReady(client, onLog)
+    let info = await client.deviceStatus()
     if (info.sdcard === 'yes') {
       onLog('SD card available -- using /sdcard')
       return client
@@ -537,12 +536,6 @@ export async function connectAndPrepare(requestPort, callbacks) {
   return client
 }
 
-export async function reconnectPrepared(client, callbacks) {
-  const info = await client.status()
-  if (info.sdcard === 'yes') return client
-  if (info.internal === 'yes') return client
-  return prepareForSync(client, callbacks)
-}
 
 export async function syncFileList(client, dirHandle, rels, onLog, reconnect) {
   let reloadNeeded = false
@@ -575,14 +568,14 @@ export async function syncFileList(client, dirHandle, rels, onLog, reconnect) {
           onLog?.(`disconnect during PUT ${rel}; reconnecting…`)
           await client.close().catch(() => { })
           client = await reconnect()
-          client = await reconnectPrepared(client, { onLog })
+          client = await prepareForSync(client, { onLog })
           continue
         }
         if (/not mounted|crc/i.test(msg)) {
           onLog?.(`${msg}; reconnecting…`)
           await client.close().catch(() => { })
           client = await reconnect()
-          client = await reconnectPrepared(client, { onLog })
+          client = await prepareForSync(client, { onLog })
           continue
         }
         throw e
@@ -595,7 +588,7 @@ export async function syncFileList(client, dirHandle, rels, onLog, reconnect) {
     try { await client.resetDevice() } catch (_) { }
     await client.close().catch(() => { })
     client = await reconnect()
-    client = await reconnectPrepared(client, { onLog })
+    client = await prepareForSync(client, { onLog })
   } else if (reloadNeeded) {
     onLog?.('RELOAD')
     try { await client.reload() } catch (_) {
