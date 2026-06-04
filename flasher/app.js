@@ -63,7 +63,7 @@ function syncLog(msg) {
   appendLine(msg, 'sync')
 }
 
-function syncCallbacks() {
+function syncCallbacks(gen = syncMaintainerGen) {
   return {
     onLog: syncLog,
     setReconnecting(v) { syncReconnecting = v },
@@ -72,6 +72,7 @@ function syncCallbacks() {
       if (kind === 'device') appendLine(line)
       else syncLog(`← ${line}`)
     },
+    isAlive: () => syncWanted && gen === syncMaintainerGen,
   }
 }
 
@@ -107,7 +108,7 @@ function kickSyncMaintainer() {
       }
       $('sync-status').textContent = 'Waiting for device…'
       syncReconnecting = true
-      const cb = syncCallbacks()
+      const cb = syncCallbacks(gen)
       try {
         let client = await waitForAuthorizedPort(120000, cb)
         client = await reconnectPrepared(client, cb)
@@ -189,7 +190,7 @@ function kickMonitorMaintainer() {
         const alive = () => monWanted && !syncClient && gen === monMaintainerGen
         const opened = await openMonitorPort({
           preferred: monPick,
-          probe: reconnectProbe,
+          probe: false,
           isAlive: alive,
         })
         if (!opened || !alive()) {
@@ -274,7 +275,7 @@ function setWatchingStatus() {
 
 async function reconnectSync() {
   syncReconnecting = true
-  const cb = syncCallbacks()
+  const cb = syncCallbacks(syncMaintainerGen)
   try {
     let client = await waitForAuthorizedPort(60000, cb)
     return await reconnectPrepared(client, cb)
@@ -443,7 +444,7 @@ async function startPatchSync() {
   monFollowLog = true
   $('sync-status').textContent = 'Connecting…'
   try {
-    syncClient = await connectAndPrepare(requestSerialPort, syncCallbacks())
+    syncClient = await connectAndPrepare(requestSerialPort, syncCallbacks(syncMaintainerGen))
     openSyncLog()
     const info = await syncClient.status()
     $('sync-status').textContent = `Connected · target ${syncStorePath(info)}`
@@ -1097,6 +1098,7 @@ $('mon-connect-btn').addEventListener('click', async () => {
 })
 
 async function readMonitorLoop(port) {
+  if (!port || !port.readable) return
   const abort = new AbortController()
   monPipeAbort = abort
   const decoder = new TextDecoderStream()

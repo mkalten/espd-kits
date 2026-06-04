@@ -85,7 +85,7 @@ export async function ensurePortOpen(port) {
   } catch (e) {
     const msg = String(e.message || e)
     if (msg.includes('already open')) {
-      try { await port.close() } catch (_) {}
+      try { await port.close() } catch (_) { }
       await sleep(200)
       await port.open({ baudRate: 115200 })
     } else {
@@ -103,9 +103,9 @@ function syncOrder(rel) {
 export class EspdSyncClient {
   constructor(port, { onLine, onLog, onDisconnect } = {}) {
     this.port = port
-    this.onLine = onLine || (() => {})
-    this.onLog = onLog || (() => {})
-    this.onDisconnect = onDisconnect || (() => {})
+    this.onLine = onLine || (() => { })
+    this.onLog = onLog || (() => { })
+    this.onDisconnect = onDisconnect || (() => { })
     this.reader = null
     this.writer = null
     this.stopped = false
@@ -122,15 +122,15 @@ export class EspdSyncClient {
 
   async open() {
     await ensurePortOpen(this.port)
-    await this.port.setSignals?.({ dataTerminalReady: true, requestToSend: true }).catch(() => {})
+    await this.port.setSignals?.({ dataTerminalReady: true, requestToSend: true }).catch(() => { })
     if (this.reader) {
-      try { await this.reader.cancel() } catch (_) {}
-      try { this.reader.releaseLock() } catch (_) {}
+      try { await this.reader.cancel() } catch (_) { }
+      try { this.reader.releaseLock() } catch (_) { }
       this.reader = null
     }
     if (this.writer) {
-      try { await this.writer.close() } catch (_) {}
-      try { this.writer.releaseLock?.() } catch (_) {}
+      try { await this.writer.close() } catch (_) { }
+      try { this.writer.releaseLock?.() } catch (_) { }
       this.writer = null
     }
     this.writer = this.port.writable.getWriter()
@@ -143,7 +143,7 @@ export class EspdSyncClient {
 
   async ensureOpen() {
     if (this.disconnected || this.stopped || !this.writer || !this.reader
-        || !this.port.readable || !this.port.writable) {
+      || !this.port.readable || !this.port.writable) {
       await this.open()
     }
   }
@@ -161,13 +161,13 @@ export class EspdSyncClient {
     this.stopped = true
     this.disconnected = true
     this.pendingReply = null
-    try { await this.reader?.cancel() } catch (_) {}
-    try { this.reader?.releaseLock() } catch (_) {}
+    try { await this.reader?.cancel() } catch (_) { }
+    try { this.reader?.releaseLock() } catch (_) { }
     this.reader = null
-    try { await this.writer?.close() } catch (_) {}
-    try { this.writer?.releaseLock?.() } catch (_) {}
+    try { await this.writer?.close() } catch (_) { }
+    try { this.writer?.releaseLock?.() } catch (_) { }
     this.writer = null
-    try { await this.port.close() } catch (_) {}
+    try { await this.port.close() } catch (_) { }
   }
 
   _resolveReply(line) {
@@ -280,7 +280,7 @@ export class EspdSyncClient {
   async resetDevice() {
     try {
       await this.command('RESET', 2000)
-    } catch (_) {}
+    } catch (_) { }
   }
 
   async sendPd(message) {
@@ -359,7 +359,7 @@ export async function requestSerialPort() {
 
 async function openPortFresh(port, timeoutMs, isAlive = () => true) {
   if (!isAlive()) throw new Error('aborted')
-  try { await port.close() } catch (_) {}
+  try { await port.close() } catch (_) { }
   await sleep(300)
   if (!isAlive()) throw new Error('aborted')
   let timer
@@ -378,7 +378,7 @@ async function openPortFresh(port, timeoutMs, isAlive = () => true) {
   } finally {
     clearTimeout(timer)
   }
-  await port.setSignals?.({ dataTerminalReady: true, requestToSend: true }).catch(() => {})
+  await port.setSignals?.({ dataTerminalReady: true, requestToSend: true }).catch(() => { })
   await sleep(200)
 }
 
@@ -401,8 +401,8 @@ async function sniffMonitorData(port, maxMs, isAlive = () => true) {
     }
     return null
   } finally {
-    try { await reader.cancel() } catch (_) {}
-    try { reader.releaseLock() } catch (_) {}
+    try { await reader.cancel() } catch (_) { }
+    try { reader.releaseLock() } catch (_) { }
   }
 }
 
@@ -419,19 +419,19 @@ export async function openMonitorPort({
     if (probe) {
       await openPortFresh(preferred, openTimeoutMs, isAlive)
       if (!isAlive()) {
-        try { await preferred.close() } catch (_) {}
+        try { await preferred.close() } catch (_) { }
         return null
       }
       const initial = await sniffMonitorData(preferred, probeMs, isAlive)
       if (initial !== null) return { port: preferred, initial }
-      try { await preferred.close() } catch (_) {}
+      try { await preferred.close() } catch (_) { }
       return null
     }
     await ensurePortOpen(preferred)
-    await preferred.setSignals?.({ dataTerminalReady: true, requestToSend: true }).catch(() => {})
+    await preferred.setSignals?.({ dataTerminalReady: true, requestToSend: true }).catch(() => { })
     return { port: preferred, initial: '' }
   } catch (_) {
-    try { await preferred.close() } catch (_) {}
+    try { await preferred.close() } catch (_) { }
     return null
   }
 }
@@ -443,23 +443,33 @@ export async function openAuthorizedPort() {
       await ensurePortOpen(port)
       return port
     } catch (_) {
-      try { await port.close() } catch (_) {}
+      try { await port.close() } catch (_) { }
     }
   }
   return null
 }
 
 export async function waitForAuthorizedPort(timeoutMs = 60000, callbacks = {}) {
-  const onLog = callbacks.onLog || (() => {})
+  const onLog = callbacks.onLog || (() => { })
+  const isAlive = callbacks.isAlive || (() => true)
   const deadline = Date.now() + timeoutMs
   onLog('waiting for CDC after reboot…')
   while (Date.now() < deadline) {
+    if (!isAlive()) throw new Error('aborted')
     const port = await openAuthorizedPort()
     if (port) {
+      if (!isAlive()) {
+        try { await port.close() } catch (_) { }
+        throw new Error('aborted')
+      }
       const client = new EspdSyncClient(port, callbacks)
       try {
         await client.open()
         for (let i = 0; i < 15; i++) {
+          if (!isAlive()) {
+            await client.close()
+            throw new Error('aborted')
+          }
           try {
             const info = await client.status()
             onLog(`connected: +OK STATUS sdcard=${info.sdcard} internal=${info.internal} mode=${info.mode}`)
@@ -468,7 +478,9 @@ export async function waitForAuthorizedPort(timeoutMs = 60000, callbacks = {}) {
             await sleep(400)
           }
         }
-      } catch (_) {}
+      } catch (e) {
+        if (e.message === 'aborted') throw e
+      }
       await client.close()
     }
     await sleep(500)
@@ -488,7 +500,7 @@ export async function waitForStorageReady(client, onLog, maxSec = 45) {
 }
 
 export async function ensureMscSyncForWrite(client, callbacks) {
-  const onLog = callbacks?.onLog || (() => {})
+  const onLog = callbacks?.onLog || (() => { })
   let info = await waitForStorageReady(client, onLog)
 
   if (info.mode === 'msc_sync') {
@@ -522,7 +534,7 @@ export async function ensureMscSyncForWrite(client, callbacks) {
 }
 
 export async function prepareForSync(client, callbacks, { reconnecting = false } = {}) {
-  const onLog = callbacks?.onLog || (() => {})
+  const onLog = callbacks?.onLog || (() => { })
   if (callbacks?.setReconnecting) callbacks.setReconnecting(true)
   try {
     return await prepareForSyncInner(client, callbacks, onLog)
@@ -587,14 +599,14 @@ export async function syncFileList(client, dirHandle, rels, onLog, reconnect) {
         const msg = String(e.message || e)
         if (/timeout|disconnect|closed|break|null/i.test(msg)) {
           onLog?.(`disconnect during PUT ${rel}; reconnecting…`)
-          await client.close().catch(() => {})
+          await client.close().catch(() => { })
           client = await reconnect()
           client = await reconnectPrepared(client, { onLog })
           continue
         }
         if (/not mounted|crc/i.test(msg)) {
           onLog?.(`${msg}; reconnecting…`)
-          await client.close().catch(() => {})
+          await client.close().catch(() => { })
           client = await reconnect()
           client = await reconnectPrepared(client, { onLog })
           continue
@@ -606,8 +618,8 @@ export async function syncFileList(client, dirHandle, rels, onLog, reconnect) {
 
   if (resetNeeded) {
     onLog?.('RESET (config.txt applies on boot)')
-    try { await client.resetDevice() } catch (_) {}
-    await client.close().catch(() => {})
+    try { await client.resetDevice() } catch (_) { }
+    await client.close().catch(() => { })
     client = await reconnect()
     client = await reconnectPrepared(client, { onLog })
   } else if (reloadNeeded) {
