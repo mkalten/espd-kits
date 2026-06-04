@@ -2,7 +2,7 @@
 
 const PUT_CHUNK = 4096
 const PUT_BPS = 800000
-const STATUS_RE = /^\+OK STATUS sdcard=(yes|no) internal=(yes|no) mode=(normal|msc_sync)$/
+const STATUS_RE = /^\+OK STATUS sdcard=(yes|no) internal=(yes|no)$/
 const PUT_DONE_RE = /^\+OK PUT done ([0-9a-fA-F]{8})$/
 
 const PATCH_SUFFIXES = ['.pd']
@@ -24,7 +24,7 @@ export function crc32Bytes(data) {
 export function parseStatus(line) {
   const m = String(line).trim().match(STATUS_RE)
   if (!m) throw new Error(`unexpected STATUS: ${line}`)
-  return { sdcard: m[1], internal: m[2], mode: m[3] }
+  return { sdcard: m[1], internal: m[2] }
 }
 
 export function syncStorePath(info) {
@@ -265,13 +265,7 @@ export class EspdSyncClient {
     return this.status()
   }
 
-  async setMode(mode) {
-    try {
-      await this.command(`MODE ${mode}`, 3000)
-    } catch (_) {
-      /* reboot disconnects CDC */
-    }
-  }
+
 
   async reload() {
     await this.command('RELOAD', 30000)
@@ -472,7 +466,7 @@ export async function waitForAuthorizedPort(timeoutMs = 60000, callbacks = {}) {
           }
           try {
             const info = await client.status()
-            onLog(`connected: +OK STATUS sdcard=${info.sdcard} internal=${info.internal} mode=${info.mode}`)
+            onLog(`connected: +OK STATUS sdcard=${info.sdcard} internal=${info.internal}`)
             return client
           } catch (_) {
             await sleep(400)
@@ -499,60 +493,39 @@ export async function waitForStorageReady(client, onLog, maxSec = 45) {
   throw new Error('/storage not ready on device (boot still in progress?)')
 }
 
-export async function ensureMscSyncForWrite(client, callbacks) {
+export async function ensureStorageForWrite(client, callbacks) {
   const onLog = callbacks?.onLog || (() => { })
   let info = await waitForStorageReady(client, onLog)
 
-  if (info.mode === 'msc_sync') {
-    if (info.internal === 'no') {
-      onLog('waiting for /storage mount on device…')
-      for (let i = 0; i < 30; i++) {
-        info = await client.status()
-        if (info.internal === 'yes') break
-        await sleep(500)
-      }
-    }
-    if (info.internal !== 'yes') throw new Error('/storage not mounted (msc_sync)')
-    return client
-  }
+  if (info.internal === 'yes') return client
 
-  onLog('switching to msc_sync for flash write (device will reboot)')
-  await client.setMode('MSC_SYNC')
+  /* Device is in drive mode (internal flash owned by host).
+   * RESET reboots into Pd mode where /storage is APP-mounted. */
+  onLog('internal storage not available -- resetting device')
+  await client.resetDevice()
   await client.close()
   await sleep(2500)
   client = await waitForAuthorizedPort(60000, callbacks)
-
-  for (let attempt = 0; attempt < 60; attempt++) {
-    info = await client.status()
-    if (info.mode === 'msc_sync' && info.internal === 'yes') return client
-    if (info.mode === 'msc_sync' && info.internal === 'no' && (attempt === 0 || attempt % 10 === 0)) {
-      onLog('waiting for /storage mount on device…')
-    }
-    await sleep(500)
+  info = await waitForStorageReady(client, onLog)
+  if (info.internal !== 'yes') {
+    throw new Error(`/storage still not available after reset (internal=${info.internal})`)
   }
-  throw new Error(`msc_sync failed: mode=${info.mode} internal=${info.internal}`)
+  return client
 }
 
 export async function prepareForSync(client, callbacks, { reconnecting = false } = {}) {
   const onLog = callbacks?.onLog || (() => { })
   if (callbacks?.setReconnecting) callbacks.setReconnecting(true)
   try {
-    return await prepareForSyncInner(client, callbacks, onLog)
+    let info = await waitForStorageReady(client, onLog)
+    if (info.sdcard === 'yes') {
+      onLog('SD card available -- using /sdcard')
+      return client
+    }
+    return ensureStorageForWrite(client, callbacks)
   } finally {
     if (callbacks?.setReconnecting) callbacks.setReconnecting(false)
   }
-}
-
-async function prepareForSyncInner(client, callbacks, onLog) {
-  let info = await waitForStorageReady(client, onLog)
-  if (info.sdcard === 'yes') {
-    onLog('SD card available — using /sdcard')
-    return client
-  }
-  if (info.internal !== 'yes' && info.mode !== 'msc_sync') {
-    onLog('no SD card — using /storage on device')
-  }
-  return ensureMscSyncForWrite(client, callbacks)
 }
 
 export async function connectAndPrepare(requestPort, callbacks) {
@@ -565,8 +538,8 @@ export async function connectAndPrepare(requestPort, callbacks) {
 
 export async function reconnectPrepared(client, callbacks) {
   const info = await client.status()
-  if (info.sdcard === 'yes' && info.mode !== 'msc_sync') return client
-  if (info.mode === 'msc_sync' && info.internal === 'yes') return client
+  if (info.sdcard === 'yes') return client
+  if (info.internal === 'yes') return client
   return prepareForSync(client, callbacks)
 }
 
