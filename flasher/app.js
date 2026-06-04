@@ -1,5 +1,6 @@
 import { ESPLoader, Transport } from 'https://cdn.jsdelivr.net/npm/esptool-js@0.5.4/bundle.js'
 import {
+  EspdSyncClient,
   collectSyncFiles,
   collectSyncMtimes,
   connectAndPrepare,
@@ -28,6 +29,7 @@ let flashLog = []
 let showLog = false
 let monPort = null
 let monReader = null
+let monLoopPromise = null
 let monBuf = ''
 let monFollowLog = true
 let monExpanded = false
@@ -207,8 +209,10 @@ function kickMonitorMaintainer() {
         monFollowLog = true
         updateMonitorToolbar()
         try {
-          await readMonitorLoop(opened.port)
+          monLoopPromise = readMonitorLoop(opened.port)
+          await monLoopPromise
         } finally {
+          monLoopPromise = null
           stopMonitorPipe()
           monPort = null
           monReader = null
@@ -291,11 +295,12 @@ function setSyncUi(connected) {
   updateMonitorToolbar()
 }
 
-async function stopSync() {
+async function stopSync(fallbackToMonitor = true, keepLogOpen = false) {
   syncWanted = false
   syncMaintainerGen++
   syncMaintainerActive = false
   stopSyncWatch()
+  const port = syncClient?.port
   if (syncClient) {
     await syncClient.close().catch(() => {})
     syncClient = null
@@ -304,8 +309,16 @@ async function stopSync() {
   syncBusy = false
   setSyncUi(false)
   $('sync-status').textContent = syncDirHandle ? 'Stopped' : ''
-  setMonitorExpanded(false)
-  showMonitorDisconnected()
+  if (port && fallbackToMonitor) {
+    await sleep(100)
+    monPick = port
+    monWanted = true
+    monLogOpen = true
+    kickMonitorMaintainer()
+  } else if (!keepLogOpen) {
+    setMonitorExpanded(false)
+    showMonitorDisconnected()
+  }
 }
 
 async function runSync(label, onlyRels = null) {
@@ -407,13 +420,12 @@ async function releaseMonitorPort() {
   wakeMonitorMaintainer()
   stopMonitorPipe()
   const port = monPort
-  const reader = monReader
   monPort = null
   monReader = null
   monBuf = ''
-  if (reader) {
-    try { await reader.cancel() } catch (_) {}
-    try { reader.releaseLock() } catch (_) {}
+  if (monLoopPromise) {
+    try { await monLoopPromise } catch (_) {}
+    monLoopPromise = null
   }
   if (port) {
     try { await port.close() } catch (_) {}
@@ -428,8 +440,11 @@ function openSyncLog() {
 
 async function startPatchSync() {
   if (!syncDirHandle || syncBusy) return
-  await stopSync()
-  await releaseMonitorPort()
+  syncLogOpen = true
+  if (monPort) {
+    await releaseMonitorPort()
+  }
+  await stopSync(false, true)
   syncWanted = true
   openSyncLog()
   syncBusy = true
@@ -437,14 +452,17 @@ async function startPatchSync() {
   monFollowLog = true
   $('sync-status').textContent = 'Connecting…'
   try {
-    syncClient = await connectAndPrepare(requestSerialPort, syncCallbacks(syncMaintainerGen))
+    syncClient = await connectAndPrepare(openAuthorizedPort, syncCallbacks(syncMaintainerGen)).catch(() => null)
+    if (!syncClient) {
+      syncClient = await connectAndPrepare(requestSerialPort, syncCallbacks(syncMaintainerGen))
+    }
     const info = await syncClient.status()
     $('sync-status').textContent = `Connected · target ${syncStorePath(info)}`
     syncBusy = false
     await runSync('initial sync')
   } catch (e) {
     syncLog(`connect failed: ${e.message || e}`)
-    await stopSync()
+    await stopSync(true)
   } finally {
     syncBusy = false
     setSyncUi(!!syncClient)
@@ -875,18 +893,19 @@ $('flash-btn').addEventListener('click', async () => {
 function updateMonitorToolbar() {
   const syncActive = syncWanted || !!syncClient
   const monitorActive = monWanted || !!monPort
-  const logOpen = syncLogOpen || monLogOpen || monitorActive
   const canSendPd = !!syncClient || !!monPort
+  const connected = syncActive || monitorActive
 
-  show($('mon-connect-btn'), !syncActive && !monitorActive && !monConnecting)
-  show($('mon-disc-btn'), logOpen && (syncActive || monitorActive))
-  show($('mon-reset-btn'), logOpen && (syncActive || monitorActive))
+  $('mon-connect-btn').textContent = connected ? 'Disconnect' : (monConnecting ? 'Connecting...' : 'Connect')
+  $('mon-connect-btn').disabled = monConnecting
+  $('mon-reset-btn').disabled = !connected
+
   show($('mon-status'), false)
   if (syncClient) {
     show($('mon-status'), true)
     $('mon-status').innerHTML =
       '<span class="h-1.5 w-1.5 rounded-full bg-green-600"></span> patch sync'
-  } else if (syncWanted && syncLogOpen && !syncClient) {
+  } else if (syncWanted && !syncClient) {
     show($('mon-status'), true)
     $('mon-status').innerHTML =
       '<span class="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse"></span> waiting for device'
@@ -899,13 +918,10 @@ function updateMonitorToolbar() {
     $('mon-status').innerHTML =
       '<span class="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse"></span> waiting for port'
   }
-  show($('mon-log-actions'), logOpen)
-  show($('monitor-wrap'), logOpen)
-  show($('mon-toolbar'), logOpen && !monExpanded)
-  if (!logOpen) clearMonitorCursor()
-  show($('mon-pd-wrap'), logOpen && canSendPd)
-  $('mon-pd-btn').disabled = syncBusy
-  $('mon-pd-input').disabled = syncBusy
+  show($('mon-toolbar'), !monExpanded)
+  const pdDisabled = !canSendPd || syncBusy
+  $('mon-pd-btn').disabled = pdDisabled
+  $('mon-pd-input').disabled = pdDisabled
 }
 
 function showMonitorDisconnected() {
@@ -942,7 +958,7 @@ function updateMonitorFollowFromScroll() {
 
 async function closeMonitor() {
   if (syncClient || syncWanted) {
-    await stopSync()
+    await stopSync(false)
     return
   }
   await releaseMonitorPort()
@@ -1069,24 +1085,30 @@ function appendLine(text, source) {
 }
 
 $('mon-connect-btn').addEventListener('click', async () => {
-  if (monPort || syncClient || monConnecting) return
-  if (syncWanted) await stopSync()
-  monConnecting = true
-  updateMonitorToolbar()
-  try {
-    monPick = await navigator.serial.requestPort()
-    monWanted = true
-    monLogOpen = true
+  const syncActive = syncWanted || !!syncClient
+  const monitorActive = monWanted || !!monPort
+  if (syncActive || monitorActive) {
+    await closeMonitor()
+  } else {
+    if (monPort || syncClient || monConnecting) return
+    if (syncWanted) await stopSync(false)
+    monConnecting = true
     updateMonitorToolbar()
-    kickMonitorMaintainer()
-  } catch (err) {
-    monWanted = false
-    appendLine('[Error] ' + (err?.message ?? err))
-    monLogOpen = true
-    updateMonitorToolbar()
-  } finally {
-    monConnecting = false
-    updateMonitorToolbar()
+    try {
+      monPick = await navigator.serial.requestPort()
+      monWanted = true
+      monLogOpen = true
+      updateMonitorToolbar()
+      kickMonitorMaintainer()
+    } catch (err) {
+      monWanted = false
+      appendLine('[Error] ' + (err?.message ?? err))
+      monLogOpen = true
+      updateMonitorToolbar()
+    } finally {
+      monConnecting = false
+      updateMonitorToolbar()
+    }
   }
 })
 
@@ -1095,7 +1117,7 @@ async function readMonitorLoop(port) {
   const abort = new AbortController()
   monPipeAbort = abort
   const decoder = new TextDecoderStream()
-  port.readable.pipeTo(decoder.writable, { signal: abort.signal }).catch(() => {})
+  const pipePromise = port.readable.pipeTo(decoder.writable, { signal: abort.signal }).catch(() => {})
   const reader = decoder.readable.getReader()
   monReader = reader
   try {
@@ -1113,10 +1135,10 @@ async function readMonitorLoop(port) {
     try { await reader.cancel() } catch (_) {}
     try { reader.releaseLock() } catch (_) {}
     if (monReader === reader) monReader = null
+    try { await pipePromise } catch (_) {}
   }
 }
 
-$('mon-disc-btn').addEventListener('click', async () => { await closeMonitor() })
 $('mon-reset-btn').addEventListener('click', async () => {
   if (syncClient) {
     syncLog('Resetting board...')
@@ -1221,3 +1243,4 @@ if ('serial' in navigator) {
 }
 fetchGithubReleases()
 render()
+updateMonitorToolbar()

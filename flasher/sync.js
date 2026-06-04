@@ -137,7 +137,7 @@ export class EspdSyncClient {
     this.reader = this.port.readable.getReader()
     this.stopped = false
     this.disconnected = false
-    this._readLoop()
+    this._readLoopPromise = this._readLoop()
     await sleep(250)
   }
 
@@ -161,12 +161,22 @@ export class EspdSyncClient {
     this.stopped = true
     this.disconnected = true
     this.pendingReply = null
-    try { await this.reader?.cancel() } catch (_) { }
-    try { this.reader?.releaseLock() } catch (_) { }
-    this.reader = null
-    try { await this.writer?.close() } catch (_) { }
-    try { this.writer?.releaseLock?.() } catch (_) { }
-    this.writer = null
+    if (this.reader) {
+      try { await this.reader.cancel() } catch (_) { }
+    }
+    if (this._readLoopPromise) {
+      try { await this._readLoopPromise } catch (_) { }
+      this._readLoopPromise = null
+    }
+    if (this.reader) {
+      try { this.reader.releaseLock() } catch (_) { }
+      this.reader = null
+    }
+    if (this.writer) {
+      try { await this.writer.close() } catch (_) { }
+      try { this.writer.releaseLock?.() } catch (_) { }
+      this.writer = null
+    }
     try { await this.port.close() } catch (_) { }
   }
 
