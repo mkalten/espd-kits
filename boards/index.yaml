@@ -3,3 +3,6 @@ boards:
   - id: waveshare_s3
     target: esp32s3
     name: Waveshare ESP32-S3-AUDIO
+  - id: korvo2
+    target: esp32s3
+    name: ESP32-S3-Korvo-2
