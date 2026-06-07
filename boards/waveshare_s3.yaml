@@ -23,6 +23,10 @@ features:
     - ESPD_USE_WIFI
     - ESPD_USE_USB_OTG
 
+# 16 MB hardware flash → espd generates the partition table (factory fixed,
+# storage = remainder) and sets ESPTOOLPY_FLASHSIZE.
+flash: 16MB
+
 io:
   buttons: [VOLUP, PLAY, VOLDOWN]
 
@@ -34,9 +38,6 @@ profile:
     ESPD_USE_AOUT: y
     ESPD_USE_WIFI: y
   Board hardware:
-    PARTITION_TABLE_CUSTOM_FILENAME: partitions_pd.csv
-    PARTITION_TABLE_FILENAME: partitions_pd.csv
-    ESPTOOLPY_FLASHSIZE_16MB: y
     SPIRAM: y
     SPIRAM_MODE_OCT: y
     SPIRAM_SPEED_80M: y
