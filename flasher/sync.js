@@ -440,13 +440,19 @@ export async function openMonitorPort({
   }
 }
 
-export async function openAuthorizedPort() {
+export async function openAuthorizedPort(timeoutMs = 3000, isAlive = () => true) {
   const ports = await navigator.serial.getPorts()
   for (const port of ports) {
     try {
-      await ensurePortOpen(port)
+      // Force a clean close+reopen: after a USB reboot Chrome reuses the same
+      // SerialPort object with stale (dead) readable/writable handles, so the
+      // lenient ensurePortOpen() would "succeed" onto a dead stream and STATUS
+      // would never reply (stuck at "waiting for CDC after reboot…").
+      // openPortFresh() discards the stale streams.
+      await openPortFresh(port, timeoutMs, isAlive)
       return port
-    } catch (_) {
+    } catch (e) {
+      if (String(e.message || e) === 'aborted') throw e
       try { await port.close() } catch (_) { }
     }
   }
@@ -460,7 +466,7 @@ export async function waitForAuthorizedPort(timeoutMs = 60000, callbacks = {}) {
   onLog('waiting for CDC after reboot…')
   while (Date.now() < deadline) {
     if (!isAlive()) throw new Error('aborted')
-    const port = await openAuthorizedPort()
+    const port = await openAuthorizedPort(3000, isAlive)
     if (port) {
       if (!isAlive()) {
         try { await port.close() } catch (_) { }
