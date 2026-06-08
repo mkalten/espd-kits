@@ -439,9 +439,16 @@ export async function openMonitorPort({
   }
 }
 
-export async function openAuthorizedPort(timeoutMs = 3000, isAlive = () => true) {
+export async function openAuthorizedPort(timeoutMs = 3000, isAlive = () => true, preferred = null) {
   const ports = await navigator.serial.getPorts()
-  for (const port of ports) {
+  // Try the freshly (re)connected port first. After a RESET the device
+  // re-enumerates and the 'connect' event hands us the exact new port; opening
+  // it immediately avoids burning the open timeout on the dead pre-reboot handle
+  // (the "stuck for seconds … waiting for CDC after reboot" stall).
+  const ordered = (preferred && ports.includes(preferred))
+    ? [preferred, ...ports.filter(p => p !== preferred)]
+    : ports
+  for (const port of ordered) {
     try {
       // Force a clean close+reopen: after a USB reboot Chrome reuses the same
       // SerialPort object with stale (dead) readable/writable handles, so the
@@ -463,7 +470,8 @@ export async function waitForAuthorizedPort(timeoutMs = 60000, callbacks = {}) {
   const isAlive = callbacks.isAlive || (() => true)
   const deadline = Date.now() + timeoutMs
   let wake = null
-  const onConnect = () => { wake?.() }
+  let justConnected = null
+  const onConnect = (e) => { justConnected = e?.target || null; wake?.() }
   if (typeof navigator !== 'undefined' && navigator.serial?.addEventListener) {
     navigator.serial.addEventListener('connect', onConnect)
   }
@@ -471,7 +479,7 @@ export async function waitForAuthorizedPort(timeoutMs = 60000, callbacks = {}) {
   try {
     while (Date.now() < deadline) {
       if (!isAlive()) throw new Error('aborted')
-      const port = await openAuthorizedPort(2500, isAlive)
+      const port = await openAuthorizedPort(2000, isAlive, justConnected)
       if (port) {
         if (!isAlive()) {
           try { await port.close() } catch (_) { }
