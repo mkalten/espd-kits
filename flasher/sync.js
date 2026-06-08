@@ -431,8 +431,7 @@ export async function openMonitorPort({
       try { await preferred.close() } catch (_) { }
       return null
     }
-    await ensurePortOpen(preferred)
-    await preferred.setSignals?.({ dataTerminalReady: true, requestToSend: true }).catch(() => { })
+    await openPortFresh(preferred, openTimeoutMs, isAlive)
     return { port: preferred, initial: '' }
   } catch (_) {
     try { await preferred.close() } catch (_) { }
@@ -463,39 +462,54 @@ export async function waitForAuthorizedPort(timeoutMs = 60000, callbacks = {}) {
   const onLog = callbacks.onLog || (() => { })
   const isAlive = callbacks.isAlive || (() => true)
   const deadline = Date.now() + timeoutMs
-  onLog('waiting for CDC after reboot…')
-  while (Date.now() < deadline) {
-    if (!isAlive()) throw new Error('aborted')
-    const port = await openAuthorizedPort(3000, isAlive)
-    if (port) {
-      if (!isAlive()) {
-        try { await port.close() } catch (_) { }
-        throw new Error('aborted')
-      }
-      const client = new EspdSyncClient(port, callbacks)
-      try {
-        await client.open()
-        for (let i = 0; i < 15; i++) {
-          if (!isAlive()) {
-            await client.close()
-            throw new Error('aborted')
-          }
-          try {
-            const info = await client.status(1500)
-            onLog(`connected: +OK STATUS sdcard=${info.sdcard} internal=${info.internal}`)
-            return client
-          } catch (_) {
-            await sleep(400)
-          }
-        }
-      } catch (e) {
-        if (e.message === 'aborted') throw e
-      }
-      await client.close()
-    }
-    await sleep(500)
+  let wake = null
+  const onConnect = () => { wake?.() }
+  if (typeof navigator !== 'undefined' && navigator.serial?.addEventListener) {
+    navigator.serial.addEventListener('connect', onConnect)
   }
-  throw new Error(`CDC port not ready within ${timeoutMs / 1000}s — pick the port again`)
+  onLog('waiting for CDC after reboot…')
+  try {
+    while (Date.now() < deadline) {
+      if (!isAlive()) throw new Error('aborted')
+      const port = await openAuthorizedPort(2500, isAlive)
+      if (port) {
+        if (!isAlive()) {
+          try { await port.close() } catch (_) { }
+          throw new Error('aborted')
+        }
+        const client = new EspdSyncClient(port, callbacks)
+        try {
+          await client.open()
+          for (let i = 0; i < 25; i++) {
+            if (!isAlive()) {
+              await client.close()
+              throw new Error('aborted')
+            }
+            try {
+              const info = await client.status(1200)
+              onLog(`connected: +OK STATUS sdcard=${info.sdcard} internal=${info.internal}`)
+              return client
+            } catch (_) {
+              await sleep(200)
+            }
+          }
+        } catch (e) {
+          if (e.message === 'aborted') throw e
+        }
+        await client.close()
+      }
+      await Promise.race([
+        sleep(200),
+        new Promise(resolve => { wake = resolve }),
+      ])
+      wake = null
+    }
+    throw new Error(`CDC port not ready within ${timeoutMs / 1000}s — pick the port again`)
+  } finally {
+    if (typeof navigator !== 'undefined' && navigator.serial?.removeEventListener) {
+      navigator.serial.removeEventListener('connect', onConnect)
+    }
+  }
 }
 
 export async function waitForStorageReady(client, onLog, maxSec = 45) {

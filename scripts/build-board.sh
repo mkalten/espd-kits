@@ -39,6 +39,8 @@ export ESPD_BOARDS_DIR="${ROOT}/boards"
 python3 "${ROOT}/scripts/generate-manifest.py" --select "${BOARD_ID}" \
   > "${ESPD}/sdkconfig.defaults.local"
 
+"${ROOT}/scripts/prepare-board-build.sh"
+
 cd "${ESPD}"
 idf.py set-target "${TARGET}"
 idf.py build

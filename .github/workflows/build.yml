@@ -45,6 +45,11 @@ jobs:
             > espd/sdkconfig.defaults.local
           echo "sdkconfig.defaults.local:" && cat espd/sdkconfig.defaults.local
 
+      - name: Generate board plugins
+        env:
+          ESPD_BOARDS_DIR: ${{ github.workspace }}/boards
+        run: ./scripts/prepare-board-build.sh
+
       - name: Build firmware
         uses: espressif/esp-idf-ci-action@v1
         env:

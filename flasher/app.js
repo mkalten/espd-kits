@@ -185,7 +185,8 @@ function kickMonitorMaintainer() {
         const alive = () => monWanted && !syncClient && gen === monMaintainerGen
         const opened = await openMonitorPort({
           preferred: monPick,
-          probe: false,
+          probe: reconnectProbe,
+          probeMs: reconnectProbe ? 4000 : 8000,
           isAlive: alive,
         })
         if (!opened || !alive()) {
@@ -194,7 +195,7 @@ function kickMonitorMaintainer() {
             announcedWait = true
           }
           await Promise.race([
-            sleep(500),
+            sleep(200),
             new Promise(r => { monWakeWait = r }),
           ])
           monWakeWait = null
