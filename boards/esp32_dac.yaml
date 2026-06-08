@@ -6,6 +6,13 @@ help: |
   Classic ESP32 built-in DAC (GPIO25/26) for dac~ output. No external codec;
   adc~ capture is not available on this backend.
 
+features:
+  imply:
+    - ESPD_USE_AIN
+    - ESPD_USE_AOUT
+    - ESPD_USE_ADC
+    - ESPD_USE_TOUCH
+
 profile:
   Audio:
     ESPD_AUDIO_BACKEND_DAC: y
