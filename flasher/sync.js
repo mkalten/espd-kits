@@ -4,6 +4,7 @@ const PUT_CHUNK = 4096
 const PUT_BPS = 800000
 const STATUS_RE = /^\+OK STATUS sdcard=(yes|no) internal=(yes|no)$/
 const PUT_DONE_RE = /^\+OK PUT done ([0-9a-fA-F]{8})$/
+const LIST_DONE_RE = /^\+OK LIST done (\d+)$/
 
 const PATCH_SUFFIXES = ['.pd']
 const ASSET_SUFFIXES = ['.wav', '.aiff', '.aif', '.flac', '.ogg', '.mp3', '.raw']
@@ -31,23 +32,23 @@ export function syncStorePath(info) {
   return info.sdcard === 'yes' ? '/sdcard' : '/storage'
 }
 
-function syncNameOk(name, includeAssets) {
+function syncNameOk(name) {
   if (!name || name.startsWith('.')) return false
   const low = name.toLowerCase()
   if (name === 'config.txt') return true
   if (PATCH_SUFFIXES.some(s => low.endsWith(s))) return true
-  return includeAssets && ASSET_SUFFIXES.some(s => low.endsWith(s))
+  return ASSET_SUFFIXES.some(s => low.endsWith(s))
 }
 
-export async function collectSyncFiles(dirHandle, includeAssets = true, prefix = '') {
+export async function collectSyncFiles(dirHandle, prefix = '') {
   const out = []
   for await (const [name, handle] of dirHandle.entries()) {
     if (name.startsWith('.')) continue
     const rel = prefix + name
     if (handle.kind === 'file') {
-      if (syncNameOk(name, includeAssets)) out.push(rel)
+      if (syncNameOk(name)) out.push(rel)
     } else if (handle.kind === 'directory') {
-      out.push(...await collectSyncFiles(handle, includeAssets, rel + '/'))
+      out.push(...await collectSyncFiles(handle, rel + '/'))
     }
   }
   return out
@@ -61,18 +62,18 @@ export async function readFileBytes(dirHandle, rel) {
   return new Uint8Array(await file.arrayBuffer())
 }
 
-export async function collectSyncMtimes(dirHandle, includeAssets = true, prefix = '') {
+export async function collectSyncMtimes(dirHandle, prefix = '') {
   const out = new Map()
   for await (const [name, handle] of dirHandle.entries()) {
     if (name.startsWith('.')) continue
     const rel = prefix + name
     if (handle.kind === 'file') {
-      if (syncNameOk(name, includeAssets)) {
+      if (syncNameOk(name)) {
         const file = await handle.getFile()
         out.set(rel, file.lastModified)
       }
     } else if (handle.kind === 'directory') {
-      for (const [k, v] of await collectSyncMtimes(handle, includeAssets, rel + '/')) out.set(k, v)
+      for (const [k, v] of await collectSyncMtimes(handle, rel + '/')) out.set(k, v)
     }
   }
   return out
@@ -111,6 +112,8 @@ export class EspdSyncClient {
     this.stopped = false
     this.disconnected = false
     this.putActive = false
+    this.listActive = false
+    this.listPaths = []
     this.pendingReply = null
     this.lastStatus = null
     this._buf = ''
@@ -208,6 +211,20 @@ export class EspdSyncClient {
             }
             continue
           }
+          if (this.listActive) {
+            if (line.startsWith('+FILE ')) {
+              this.listPaths.push(line.slice(6))
+              this.onLine(line, 'dev')
+              continue
+            }
+            if (line.startsWith('+OK LIST done') || line.startsWith('-ERR')) {
+              this.onLine(line, 'dev')
+              this._resolveReply(line)
+            } else if (line.startsWith('+OK LIST')) {
+              this.onLine(line, 'dev')
+            }
+            continue
+          }
           if (line.startsWith('+') || line.startsWith('-ERR')) {
             this.onLine(line, 'dev')
             this._resolveReply(line)
@@ -293,6 +310,30 @@ export class EspdSyncClient {
     const line = await this.command(`MSG ${msg}`, 5000)
     if (line.startsWith('-ERR')) throw new Error(line)
     return line
+  }
+
+  async listFiles(timeoutMs = 120000) {
+    await this.ensureOpen()
+    if (!this.writer) throw new Error('serial disconnected')
+    this._clearPendingReply()
+    this.listPaths = []
+    this.listActive = true
+    try {
+      this.log('→ LIST')
+      await this.writer.write(new TextEncoder().encode('LIST\n'))
+      const line = await this._waitReply(timeoutMs)
+      if (line.startsWith('-ERR')) throw new Error(line)
+      const m = line.trim().match(LIST_DONE_RE)
+      if (!m) throw new Error(`unexpected LIST reply: ${line}`)
+      return [...this.listPaths]
+    } finally {
+      this.listActive = false
+    }
+  }
+
+  async rmFile(relPath, timeoutMs = 10000) {
+    const line = await this.command(`RM ${relPath}`, timeoutMs)
+    if (line.startsWith('-ERR')) throw new Error(line)
   }
 
   async putFile(relPath, data) {
@@ -538,12 +579,60 @@ export async function connectAndPrepare(requestPort, callbacks) {
 }
 
 
-export async function syncFileList(client, dirHandle, rels, onLog, reconnect) {
+export async function mirrorPrune(client, keep, onLog, reconnect) {
+  const keepSet = new Set(keep)
+  let onDevice
+  while (true) {
+    try {
+      onDevice = await client.listFiles()
+      break
+    } catch (e) {
+      const msg = String(e.message || e)
+      if (/timeout|disconnect|closed|break|null|not mounted/i.test(msg)) {
+        onLog?.(`${msg}; reconnecting…`)
+        await client.close().catch(() => { })
+        client = await reconnect()
+        client = await prepareForSync(client, { onLog })
+        continue
+      }
+      throw e
+    }
+  }
+  const orphans = onDevice.filter(p => !keepSet.has(p)).sort()
+  if (!orphans.length) return client
+  onLog?.(`mirror: removing ${orphans.length} file(s) not in project`)
+  for (const rel of orphans) {
+    while (true) {
+      try {
+        onLog?.(`remove ${rel}`)
+        await client.rmFile(rel)
+        break
+      } catch (e) {
+        const msg = String(e.message || e)
+        if (/timeout|disconnect|closed|break|null|not mounted/i.test(msg)) {
+          onLog?.(`${msg}; reconnecting…`)
+          await client.close().catch(() => { })
+          client = await reconnect()
+          client = await prepareForSync(client, { onLog })
+          continue
+        }
+        throw e
+      }
+    }
+  }
+  return client
+}
+
+export async function syncFileList(client, dirHandle, rels, onLog, reconnect, { mirror = true } = {}) {
   let reloadNeeded = false
   let resetNeeded = false
   let uploaded = 0
   let skipped = 0
   const t0 = performance.now()
+
+  if (mirror) {
+    client = await mirrorPrune(client, rels, onLog, reconnect)
+  }
 
   for (const rel of [...rels].sort((a, b) => {
     const [oa, ra] = syncOrder(a)

@@ -241,14 +241,12 @@ function stopSyncWatch() {
 
 async function refreshSyncMtimes() {
   if (!syncDirHandle) return
-  const includeAssets = $('sync-assets').checked
-  syncMtimes = await collectSyncMtimes(syncDirHandle, includeAssets)
+  syncMtimes = await collectSyncMtimes(syncDirHandle)
 }
 
 async function collectChangedRels() {
   if (!syncDirHandle) return []
-  const includeAssets = $('sync-assets').checked
-  const current = await collectSyncMtimes(syncDirHandle, includeAssets)
+  const current = await collectSyncMtimes(syncDirHandle)
   const changed = []
   for (const [rel, mtime] of current) {
     if (syncMtimes.get(rel) !== mtime) changed.push(rel)
@@ -283,7 +281,7 @@ function setSyncUi(connected) {
   show($('sync-start-btn'), syncDirHandle && !active)
   show($('sync-now-btn'), active)
   show($('sync-stop-btn'), active)
-  show($('sync-assets-row'), !!syncDirHandle)
+  show($('sync-remove-old-row'), !!syncDirHandle)
   $('sync-start-btn').disabled = syncBusy
   $('sync-now-btn').disabled = syncBusy
   updateMonitorToolbar()
@@ -324,20 +322,21 @@ async function runSync(label, onlyRels = null) {
   updateMonitorToolbar()
   $('sync-status').textContent = 'Syncing…'
   try {
-    const includeAssets = $('sync-assets').checked
     let rels = onlyRels
-    if (!rels) rels = await collectSyncFiles(syncDirHandle, includeAssets)
+    if (!rels) rels = await collectSyncFiles(syncDirHandle)
     if (!rels.length) {
       if (label !== 'watch') syncLog(`${label}: nothing to send`)
       return
     }
     syncLog(`${label} (${rels.length} file${rels.length === 1 ? '' : 's'})`)
+    const mirror = !onlyRels && $('sync-remove-old').checked
     syncClient = await syncFileList(
       syncClient,
       syncDirHandle,
       rels,
       syncLog,
       reconnectSync,
+      { mirror },
     )
     await refreshSyncMtimes()
     if (syncClient) await syncClient.status().catch(() => {})
