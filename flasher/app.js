@@ -1123,21 +1123,39 @@ async function readMonitorLoop(port) {
   const pipePromise = port.readable.pipeTo(decoder.writable, { signal: abort.signal }).catch(() => {})
   const reader = decoder.readable.getReader()
   monReader = reader
+  // Self-heal stale ports: a monitor port reopened onto a dead CDC enumeration
+  // (a corpse left in getPorts() after a RESET re-enumeration) opens fine but
+  // never delivers bytes, so the read below would block forever. If nothing
+  // arrives within the window AND more than one port is authorized (corpses
+  // present), forget this one and let the maintainer re-pick the live port.
+  // Guarded on >1 so a legitimately quiet Pd on a clean single-port setup is
+  // never dropped.
+  let gotBytes = false
+  let stale = false
+  const watchdog = setTimeout(async () => {
+    if (gotBytes || monPort !== port) return
+    if ((await navigator.serial.getPorts()).length > 1) {
+      stale = true
+      appendLine('dropping stale serial port', 'sync')
+      reader.cancel().catch(() => {})
+    }
+  }, 3500)
   try {
     while (monPort === port && monWanted) {
       const { value, done } = await reader.read()
       if (done) break
-      monBuf += value ?? ''
-      flushMonBuf()
+      if (value) { gotBytes = true; monBuf += value; flushMonBuf() }
     }
   } catch (_) {}
   finally {
+    clearTimeout(watchdog)
     abort.abort()
     if (monPipeAbort === abort) monPipeAbort = null
     try { await reader.cancel() } catch (_) {}
     try { reader.releaseLock() } catch (_) {}
     if (monReader === reader) monReader = null
     try { await pipePromise } catch (_) {}
+    if (stale) { try { await port.forget?.() } catch (_) {} }
   }
 }
 
