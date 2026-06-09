@@ -6,6 +6,14 @@ const STATUS_RE = /^\+OK STATUS sdcard=(yes|no) internal=(yes|no)$/
 const PUT_DONE_RE = /^\+OK PUT done ([0-9a-fA-F]{8})$/
 const LIST_DONE_RE = /^\+OK LIST done (\d+)$/
 
+export function devPathOk(rel) {
+  if (!rel || rel.startsWith('/') || rel.includes('\\')) return false
+  if (rel.split('/').some(p => !p || p.startsWith('.') || p.includes('..'))) return false
+  if (rel.length >= 384) return false
+  if (!/^[\x20-\x7e]+$/.test(rel)) return false
+  return true
+}
+
 const PATCH_SUFFIXES = ['.pd']
 const ASSET_SUFFIXES = ['.wav', '.aiff', '.aif', '.flac', '.ogg', '.mp3', '.raw']
 
@@ -125,7 +133,6 @@ export class EspdSyncClient {
 
   async open() {
     await ensurePortOpen(this.port)
-    await this.port.setSignals?.({ dataTerminalReady: true, requestToSend: true }).catch(() => { })
     if (this.reader) {
       try { await this.reader.cancel() } catch (_) { }
       try { this.reader.releaseLock() } catch (_) { }
@@ -141,7 +148,6 @@ export class EspdSyncClient {
     this.stopped = false
     this.disconnected = false
     this._readLoopPromise = this._readLoop()
-    await sleep(250)
   }
 
   async ensureOpen() {
@@ -213,7 +219,9 @@ export class EspdSyncClient {
           }
           if (this.listActive) {
             if (line.startsWith('+FILE ')) {
-              this.listPaths.push(line.slice(6))
+              const rel = line.slice(6)
+              if (devPathOk(rel)) this.listPaths.push(rel)
+              else this.onLog?.(`warning: ignore device path ${JSON.stringify(rel)}`)
               this.onLine(line, 'dev')
               continue
             }
@@ -356,7 +364,6 @@ export class EspdSyncClient {
           } catch (_) {
             throw new Error('serial disconnected')
           }
-          await sleep(300)
           continue
         }
         throw e
@@ -397,6 +404,21 @@ export class EspdSyncClient {
   }
 }
 
+export async function writeSerialCommand(port, command) {
+  if (!port?.writable) return
+  const line = command.endsWith('\n') ? command : `${command}\n`
+  const writer = port.writable.getWriter()
+  try {
+    await writer.write(new TextEncoder().encode(line))
+  } finally {
+    writer.releaseLock()
+  }
+}
+
+export async function resetSerialPort(port) {
+  return writeSerialCommand(port, 'RESET')
+}
+
 export async function requestSerialPort() {
   if (!('serial' in navigator)) throw new Error('Web Serial not supported')
   return navigator.serial.requestPort()
@@ -423,8 +445,6 @@ async function openPortFresh(port, timeoutMs, isAlive = () => true) {
   } finally {
     clearTimeout(timer)
   }
-  await port.setSignals?.({ dataTerminalReady: true, requestToSend: true }).catch(() => { })
-  await sleep(200)
 }
 
 export async function openAuthorizedPort(timeoutMs = 3000, isAlive = () => true, preferred = null) {
@@ -489,9 +509,7 @@ export async function waitForAuthorizedPort(timeoutMs = 60000, callbacks = {}) {
               const info = await client.status(1200)
               onLog(`connected: +OK STATUS sdcard=${info.sdcard} internal=${info.internal}`)
               return client
-            } catch (_) {
-              await sleep(200)
-            }
+            } catch (_) { }
           }
         } catch (e) {
           if (e.message === 'aborted') throw e
@@ -545,7 +563,6 @@ export async function ensureStorageForWrite(client, callbacks) {
   onLog('internal storage in drive mode -- resetting device')
   await client.resetDevice()
   await client.close()
-  await sleep(500)
   client = await waitForAuthorizedPort(60000, callbacks)
   const info = await waitForStorageReady(client, onLog)
   if (info.internal !== 'yes') {
@@ -554,7 +571,7 @@ export async function ensureStorageForWrite(client, callbacks) {
   return client
 }
 
-export async function prepareForSync(client, callbacks, { reconnecting = false } = {}) {
+export async function prepareForSync(client, callbacks) {
   const onLog = callbacks?.onLog || (() => { })
   if (callbacks?.setReconnecting) callbacks.setReconnecting(true)
   try {
@@ -572,6 +589,7 @@ export async function prepareForSync(client, callbacks, { reconnecting = false }
 
 export async function connectAndPrepare(requestPort, callbacks) {
   const port = await requestPort()
+  if (!port) throw new Error('no serial port')
   let client = new EspdSyncClient(port, callbacks)
   await client.open()
   client = await prepareForSync(client, callbacks)
@@ -598,7 +616,10 @@ export async function mirrorPrune(client, keep, onLog, reconnect) {
       throw e
     }
   }
-  const orphans = onDevice.filter(p => !keepSet.has(p)).sort()
+  const orphans = onDevice.filter(p => !keepSet.has(p) && devPathOk(p)).sort()
+  for (const rel of onDevice.filter(p => !keepSet.has(p) && !devPathOk(p))) {
+    onLog?.(`warning: cannot mirror-remove invalid device path ${JSON.stringify(rel)}`)
+  }
   if (!orphans.length) return client
   onLog?.(`mirror: removing ${orphans.length} file(s) not in project`)
   for (const rel of orphans) {
@@ -615,6 +636,10 @@ export async function mirrorPrune(client, keep, onLog, reconnect) {
           client = await reconnect()
           client = await prepareForSync(client, { onLog })
           continue
+        }
+        if (/not found|bad path/i.test(msg)) {
+          onLog?.(`skip ${rel} (${msg.trim()})`)
+          break
         }
         throw e
       }

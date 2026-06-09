@@ -7,6 +7,8 @@ import {
   openAuthorizedPort,
   prepareForSync,
   requestSerialPort,
+  resetSerialPort,
+  writeSerialCommand,
   sleep,
   syncFileList,
   syncStorePath,
@@ -302,7 +304,6 @@ async function stopSync(fallbackToMonitor = true, keepLogOpen = false) {
   setSyncUi(false)
   $('sync-status').textContent = syncDirHandle ? 'Stopped' : ''
   if (port && fallbackToMonitor) {
-    await sleep(100)
     monPick = port
     monWanted = true
     monLogOpen = true
@@ -433,10 +434,25 @@ function openSyncLog() {
 
 async function startPatchSync() {
   if (!syncDirHandle || syncBusy) return
-  syncLogOpen = true
   // A live (or mid-connecting) monitor means the port is already authorized;
   // remember that so we reconnect to it instead of popping a port picker.
   const fromMonitor = monWanted || !!monPort
+  // Web Serial requestPort() must run while the click gesture is still valid.
+  // Do this before stopSync / other setup when nothing is authorized yet.
+  let pickedPort = null
+  if (!fromMonitor && 'serial' in navigator) {
+    const existing = await navigator.serial.getPorts()
+    if (existing.length === 0) {
+      try {
+        pickedPort = await requestSerialPort()
+      } catch (e) {
+        openSyncLog()
+        syncLog(`connect failed: ${e.message || e}`)
+        return
+      }
+    }
+  }
+  syncLogOpen = true
   if (fromMonitor) {
     await releaseMonitorPort()
   }
@@ -456,11 +472,15 @@ async function startPatchSync() {
       // still settling after the monitor closed it).
       syncClient = await waitForAuthorizedPort(20000, cb)
       syncClient = await prepareForSync(syncClient, cb)
+    } else if (pickedPort) {
+      syncClient = new EspdSyncClient(pickedPort, cb)
+      await syncClient.open()
+      syncClient = await prepareForSync(syncClient, cb)
     } else {
-      syncClient = await connectAndPrepare(openAuthorizedPort, cb).catch(() => null)
-      if (!syncClient) {
-        syncClient = await connectAndPrepare(requestSerialPort, cb)
-      }
+      syncClient = await connectAndPrepare(
+        () => openAuthorizedPort(3000, cb.isAlive),
+        cb,
+      )
     }
     const info = await syncClient.status()
     $('sync-status').textContent = `Connected · target ${syncStorePath(info)}`
@@ -1194,55 +1214,29 @@ async function readMonitorLoop(port) {
 }
 
 $('mon-reload-btn').addEventListener('click', async () => {
-  if (syncClient) {
-    syncLog('Reloading main.pd…')
-    try {
+  if (!syncClient && !monPort) return
+  syncLog('Reloading main.pd…')
+  try {
+    if (syncClient) {
       await syncClient.reload()
       syncLog('RELOAD sent')
-    } catch (e) {
-      syncLog(`Reload failed: ${e.message || e}`)
+    } else {
+      appendLine('→ RELOAD', 'sync')
+      await writeSerialCommand(monPort, 'RELOAD')
     }
-  } else if (monPort) {
-    try {
-      if (monPort.writable) {
-        appendLine('→ RELOAD', 'sync')
-        const writer = monPort.writable.getWriter()
-        try {
-          await writer.write(new TextEncoder().encode('RELOAD\n'))
-        } catch (_) {}
-        finally {
-          writer.releaseLock()
-        }
-      }
-    } catch (e) {
-      syncLog(`Reload failed: ${e.message || e}`)
-    }
+  } catch (e) {
+    syncLog(`Reload failed: ${e.message || e}`)
   }
 })
 
 $('mon-reset-btn').addEventListener('click', async () => {
-  if (syncClient) {
-    syncLog('Resetting board...')
-    try {
-      await syncClient.resetDevice()
-    } catch (e) {
-      syncLog(`Reset failed: ${e.message || e}`)
-    }
-  } else if (monPort) {
-    try {
-      if (monPort.writable) {
-        const writer = monPort.writable.getWriter()
-        try {
-          await writer.write(new TextEncoder().encode("RESET\n"))
-        } catch (_) {}
-        finally {
-          writer.releaseLock()
-        }
-      }
-      await monPort.setSignals({ dataTerminalReady: false, requestToSend: true })
-      await sleep(100)
-      await monPort.setSignals({ dataTerminalReady: true, requestToSend: false })
-    } catch (_) {}
+  if (!syncClient && !monPort) return
+  syncLog('Resetting board...')
+  try {
+    if (syncClient) await syncClient.resetDevice()
+    else await resetSerialPort(monPort)
+  } catch (e) {
+    syncLog(`Reset failed: ${e.message || e}`)
   }
 })
 $('mon-clear-btn').addEventListener('click', () => {
