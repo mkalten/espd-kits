@@ -40,7 +40,7 @@ export function devPathOk(rel) {
 }
 
 const PATCH_SUFFIXES = ['.pd']
-const ASSET_SUFFIXES = ['.wav', '.aiff', '.aif', '.flac', '.ogg', '.mp3', '.raw']
+const ASSET_SUFFIXES = ['.wav', '.aiff', '.aif', '.flac', '.ogg', '.mp3', '.raw', '.sf2', '.mid']
 
 export function sleep(ms) {
   return new Promise(r => setTimeout(r, ms))
